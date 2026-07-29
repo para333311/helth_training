@@ -1,0 +1,214 @@
+"""엔트리포인트.
+
+    python -m bot                 상시 실행 (발행 + 명령 수신)
+    python -m bot --once photo    특정 잡을 즉시 1회 발행 (테스트용)
+    python -m bot --list          잡 이름 목록
+    python -m bot --chatid        비공개 채널의 숫자 chat ID 찾기
+    python -m bot --check         설정과 채널 연결만 점검하고 종료
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+import time
+from datetime import datetime
+
+from .commands import CommandHandler
+from .config import load_config
+from .content import Content
+from .feeds import YoutubeFeeds
+from .jobs import Publisher
+from .photos import build_source
+from .scheduler import DailyJob, IntervalJob, Scheduler
+from .store import Store
+from .tg import Telegram, TelegramError
+
+log = logging.getLogger("main")
+
+
+def build_scheduler(cfg, pub: Publisher, store: Store) -> Scheduler:
+    sched = Scheduler(store, cfg.tz)
+
+    # 1시간 주기 자극 (사진 ↔ 유튜브 링크 교대) — 밤에는 쉰다 (기본 07~22시)
+    sched.add(
+        IntervalJob(
+            name="photo",
+            fn=pub.motivation_drop,
+            minutes=cfg.photo_interval_minutes,
+            start_hour=cfg.photo_start_hour,
+            end_hour=cfg.photo_end_hour,
+        )
+    )
+
+    # 아침 미션
+    sched.add(DailyJob(name="mission", fn=pub.morning_mission, hour=7, minute=30))
+
+    # 낮 자극 (평일) — 수/일은 270kcal 카드로 자동 전환
+    sched.add(
+        DailyJob(name="quickfix", fn=pub.quick_fix, hour=12, minute=30, weekdays=(0, 1, 2, 3, 4))
+    )
+    sched.add(DailyJob(name="quickfix_weekend", fn=pub.quick_fix, hour=15, minute=0,
+                       weekdays=(5, 6)))
+
+    # 금요일 근육 상식 퀴즈
+    sched.add(DailyJob(name="quiz", fn=pub.quiz, hour=18, minute=0, weekdays=(4,)))
+
+    # 밤 체크인
+    sched.add(DailyJob(name="checkin", fn=pub.night_checkin, hour=22, minute=0))
+
+    # 일요일 주간 결산
+    sched.add(DailyJob(name="weekly", fn=pub.weekly_report, hour=21, minute=0, weekdays=(6,)))
+
+    # 2주에 한 번 리셋 데이
+    sched.add(
+        DailyJob(
+            name="reset_day",
+            fn=pub.reset_day,
+            hour=20,
+            minute=0,
+            weekdays=(6,),
+            every_n_weeks=2,
+        )
+    )
+
+    return sched
+
+
+def find_chat_id(tg: Telegram) -> None:
+    """비공개 채널은 @username 이 없어 숫자 ID 가 필요하다.
+
+    사용법: 채널에 아무 글이나 하나 올린 뒤 이 명령을 실행한다.
+    """
+    print("채널에 아무 메시지나 하나 올린 뒤 기다리세요. (Ctrl+C 로 종료)\n")
+    offset = None
+    seen: set[int] = set()
+    for _ in range(30):
+        updates = tg.get_updates(offset, timeout=10)
+        for update in updates:
+            offset = update["update_id"] + 1
+            for key in ("channel_post", "message", "edited_channel_post"):
+                chat = update.get(key, {}).get("chat")
+                if chat and chat["id"] not in seen:
+                    seen.add(chat["id"])
+                    title = chat.get("title") or chat.get("first_name", "")
+                    print(f"  {chat['type']:10} {chat['id']:>16}  {title}")
+        if seen:
+            print("\n위 ID 를 .env 의 TELEGRAM_CHANNEL_ID 에 넣으세요.")
+            return
+    print("아무것도 못 찾았습니다. 봇이 채널 관리자인지, 채널에 글을 올렸는지 확인하세요.")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="bot")
+    parser.add_argument("--once", metavar="JOB", help="잡 1회 즉시 실행")
+    parser.add_argument("--list", action="store_true", help="잡 목록 출력")
+    parser.add_argument("--chatid", action="store_true", help="채널 chat ID 찾기")
+    parser.add_argument("--check", action="store_true", help="설정 점검만")
+    parser.add_argument("--addfeed", metavar="URL", help="유튜브 채널 등록 (URL 또는 @핸들)")
+    parser.add_argument("--feeds", action="store_true", help="등록된 유튜브 채널 목록")
+    parser.add_argument("-v", "--verbose", action="store_true")
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)-7s %(name)-8s %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    cfg = load_config()
+    feeds = YoutubeFeeds(cfg.data_dir / "youtube_channels.json")
+
+    if args.addfeed:
+        entry = feeds.add(args.addfeed)
+        if entry:
+            print(f"등록: {entry['name']}  ({entry['channel_id']})")
+            return 0
+        print("등록하지 못했습니다. 채널 URL 이나 @핸들이 맞는지 확인하세요.")
+        return 1
+
+    if args.feeds:
+        items = feeds.channels()
+        if not items:
+            print("등록된 채널이 없습니다.\n  python -m bot --addfeed https://www.youtube.com/@채널명")
+        for item in items:
+            print(f"  {item['channel_id']}  {item['name']}")
+        return 0
+
+    tg = Telegram(cfg.token)
+
+    if args.chatid:
+        find_chat_id(tg)
+        return 0
+
+    store = Store(cfg.db_path)
+    content = Content(cfg.data_dir)
+    photos = build_source(cfg, store)
+    pub = Publisher(cfg, tg, store, content, photos, feeds)
+    sched = build_scheduler(cfg, pub, store)
+
+    if args.list:
+        for name in sched.job_names():
+            print(name)
+        return 0
+
+    try:
+        me = tg.get_me()
+    except TelegramError as exc:
+        log.error("봇 토큰이 유효하지 않습니다: %s", exc)
+        return 1
+
+    log.info("봇 @%s 로 접속했습니다", me.get("username", "?"))
+
+    if args.check:
+        try:
+            chat = tg.call("getChat", chat_id=cfg.channel_id)
+            log.info("채널 확인: %s (%s)", chat.get("title"), chat.get("id"))
+        except TelegramError as exc:
+            log.error("채널에 접근할 수 없습니다: %s", exc)
+            log.error("봇이 채널 관리자인지, TELEGRAM_CHANNEL_ID 가 맞는지 확인하세요.")
+            log.error("비공개 채널이면 숫자 ID 가 필요합니다: python -m bot --chatid")
+            return 1
+        log.info(
+            "미션 %d개 · 자극문구 %d개 · 퀴즈 %d개 · 내 사진 %d장 · 유튜브 채널 %d개",
+            len(content.missions), len(content.quick_fixes), len(content.quizzes),
+            store.count_photos(), len(feeds.channels()),
+        )
+        if not feeds.channels() and not cfg.unsplash_key and not cfg.pexels_key \
+                and store.count_photos() == 0:
+            log.warning("사진·영상 소스가 하나도 없습니다. 시간별 자극이 텍스트만 나갑니다.")
+            log.warning("  python -m bot --addfeed https://www.youtube.com/@채널명")
+        log.info("설정 정상입니다.")
+        return 0
+
+    if args.once:
+        now = datetime.now(cfg.tz)
+        if not sched.run_named(args.once, now):
+            log.error("그런 잡이 없습니다: %s (--list 로 확인)", args.once)
+            return 1
+        return 0
+
+    handler = CommandHandler(cfg, tg, store, content)
+    handler.register_commands()
+
+    log.info(
+        "사진 %d분 주기 (%02d~%02d시), 미션 07:30, 체크인 22:00",
+        cfg.photo_interval_minutes, cfg.photo_start_hour, cfg.photo_end_hour,
+    )
+    log.info("시작합니다. Ctrl+C 로 종료.")
+
+    while True:
+        try:
+            handler.poll(timeout=15)  # 명령 수신 (긴 폴링이 곧 틱 간격이 된다)
+            sched.tick()
+        except KeyboardInterrupt:
+            log.info("종료합니다.")
+            return 0
+        except Exception:
+            log.exception("루프 오류 — 10초 후 계속")
+            time.sleep(10)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
