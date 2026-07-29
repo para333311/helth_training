@@ -103,6 +103,8 @@ def find_chat_id(tg: Telegram) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="bot")
     parser.add_argument("--once", metavar="JOB", help="잡 1회 즉시 실행")
+    parser.add_argument("--tick", action="store_true",
+                        help="스케줄을 한 번만 확인하고 종료 (cron / GitHub Actions 용)")
     parser.add_argument("--list", action="store_true", help="잡 목록 출력")
     parser.add_argument("--chatid", action="store_true", help="채널 chat ID 찾기")
     parser.add_argument("--check", action="store_true", help="설정 점검만")
@@ -187,6 +189,12 @@ def main(argv: list[str] | None = None) -> int:
         if not sched.run_named(args.once, now):
             log.error("그런 잡이 없습니다: %s (--list 로 확인)", args.once)
             return 1
+        return 0
+
+    if args.tick:
+        # 상시 실행 대신 외부 cron 이 주기적으로 부르는 모드.
+        # 명령 수신(getUpdates)은 하지 않으므로 /done 같은 DM 명령은 동작하지 않는다.
+        sched.tick(datetime.now(cfg.tz))
         return 0
 
     handler = CommandHandler(cfg, tg, store, content)

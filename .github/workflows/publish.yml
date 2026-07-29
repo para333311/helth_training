@@ -1,0 +1,82 @@
+name: 채널 발행
+
+# 서버 없이 봇을 돌리기 위한 워크플로.
+# 30분마다 스케줄을 확인해서 발행할 게 있으면 발행한다.
+#
+# 한계 두 가지를 알고 쓸 것:
+#   1. DM 명령(/done, /streak, 사진 전송)은 동작하지 않는다.
+#      그건 봇이 계속 떠 있어야 받을 수 있다 (python -m bot).
+#   2. GitHub 의 예약 실행은 혼잡하면 몇 분에서 십여 분 늦게 뜬다.
+#      그래서 JOB_GRACE_MINUTES 로 지연을 흡수한다.
+
+on:
+  schedule:
+    - cron: "0,30 * * * *"
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "즉시 발행할 잡 (비우면 스케줄 확인만)"
+        required: false
+        type: choice
+        options: ["", photo, mission, quickfix, quiz, checkin, weekly, reset_day]
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 의존성 설치
+        run: pip install -r requirements.txt
+
+      - name: 한글 폰트 설치 (명언 카드용)
+        run: sudo apt-get install -y -qq fonts-nanum
+
+      # 스트릭·사진 순환·마지막 실행 시각이 여기에 들어 있다.
+      # 이게 없으면 매 실행이 백지 상태라 같은 명언이 반복되고 중복 발행이 생긴다.
+      - name: 상태 복원
+        uses: actions/cache/restore@v4
+        with:
+          path: data
+          key: helth-state-${{ github.run_id }}
+          restore-keys: helth-state-
+
+      - name: 발행
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          TELEGRAM_BOT_USERNAME: ${{ vars.TELEGRAM_BOT_USERNAME }}
+          OWNER_USER_ID: ${{ secrets.OWNER_USER_ID }}
+          UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          SEASON_START: ${{ vars.SEASON_START }}
+          PHOTO_INTERVAL_MINUTES: ${{ vars.PHOTO_INTERVAL_MINUTES || '60' }}
+          PHOTO_START_HOUR: ${{ vars.PHOTO_START_HOUR || '7' }}
+          PHOTO_END_HOUR: ${{ vars.PHOTO_END_HOUR || '22' }}
+          SOLO_MODE: ${{ vars.SOLO_MODE || 'true' }}
+          JOB_GRACE_MINUTES: "40"
+          TZ: Asia/Seoul
+        run: |
+          if [ -n "${{ inputs.job }}" ]; then
+            python -m bot --once "${{ inputs.job }}"
+          else
+            python -m bot --tick
+          fi
+
+      - name: 상태 저장
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data
+          key: helth-state-${{ github.run_id }}

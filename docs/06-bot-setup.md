@@ -72,7 +72,55 @@ python -m bot --once weekly    # 주간 결산
 
 `--once` 는 스케줄과 무관하게 즉시 보내므로, 채널에 어떻게 보이는지 확인할 때 쓴다.
 
-## 상시 실행
+## 어디서 돌릴 것인가
+
+**코드를 레포에 올려두는 것만으로는 아무 메시지도 안 나간다.** 어딘가에서 실제로 실행돼야 한다.
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| **GitHub Actions** | 서버 불필요, 무료, 레포에 이미 설정됨 | DM 명령 불가, 발행이 몇 분 늦을 수 있음 |
+| **집 PC** | 즉시 시작, 전부 동작 | PC 꺼지면 멈춤 |
+| **라즈베리파이 · 미니PC** | 24시간, 전부 동작 | 기기 필요 |
+| **클라우드 VM** | 24시간, 전부 동작 | 설정 필요 |
+
+혼자 쓰는 채널이고 시간별 자극이 1순위라면 **GitHub Actions 로 시작**하는 게 가장 빠르다.
+나중에 `/done` 같은 DM 명령이 필요해지면 그때 상시 실행으로 옮기면 된다.
+
+### 방법 A. GitHub Actions (서버 없이)
+
+`.github/workflows/publish.yml` 이 30분마다 스케줄을 확인해 발행한다.
+
+**설정** — 레포 → Settings → Secrets and variables → Actions
+
+`Secrets` 탭에 추가:
+
+| 이름 | 값 |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | BotFather 토큰 |
+| `TELEGRAM_CHANNEL_ID` | `-100...` 숫자 ID |
+| `OWNER_USER_ID` | 내 user_id (선택) |
+| `UNSPLASH_ACCESS_KEY` | 스톡 사진 키 (선택) |
+
+`Variables` 탭에 추가 (선택):
+
+| 이름 | 예시 |
+|---|---|
+| `SEASON_START` | `2026-07-30` |
+| `PHOTO_INTERVAL_MINUTES` | `60` |
+| `TELEGRAM_BOT_USERNAME` | `내봇이름_bot` |
+
+**시험 발행** — Actions 탭 → "채널 발행" → Run workflow → 잡 선택 후 실행.
+스케줄을 기다리지 않고 바로 보내볼 수 있다.
+
+> ⚠️ **DM 명령은 이 방식으로 동작하지 않는다.** `/done`, `/streak`, 사진 전송은
+> 봇이 계속 떠 있으면서 수신해야 하므로 아래 상시 실행이 필요하다.
+> 발행(사진·미션·체크인·결산)만 필요하면 Actions 로 충분하다.
+
+> 예약 실행은 GitHub 이 혼잡할 때 몇 분에서 십여 분 늦게 뜬다.
+> 그래서 `JOB_GRACE_MINUTES=40` 으로 지연을 흡수한다. 07:30 미션이 07:45에 나갈 수는 있어도
+> 통째로 누락되지는 않는다.
+
+### 방법 B. 상시 실행 (전부 동작)
 
 ```bash
 python -m bot
@@ -219,3 +267,6 @@ python -m bot --feeds     # 등록 목록
 | 명언 카드가 안 나옴 | Pillow 미설치 또는 한글 폰트 없음 → `pip install Pillow`, `apt install fonts-nanum` |
 | 유튜브가 안 나옴 | 채널 미등록 → `--addfeed` |
 | 발행 시각이 어긋남 | 서버 타임존 → `.env` 의 `TZ=Asia/Seoul` |
+| **아무것도 안 옴** | 봇이 실행 중이 아님 → 위 "어디서 돌릴 것인가" |
+| 채널에 친 `/start` 가 무반응 | 정상. 봇 명령은 **1:1 대화창**에서만 동작한다 |
+| Actions 는 도는데 발행이 없음 | Secrets 미설정 → 로그에서 `TELEGRAM_BOT_TOKEN 이 없습니다` 확인 |
