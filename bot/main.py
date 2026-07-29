@@ -76,28 +76,46 @@ def build_scheduler(cfg, pub: Publisher, store: Store) -> Scheduler:
     return sched
 
 
-def find_chat_id(tg: Telegram) -> None:
+def find_chat_id(tg: Telegram, rounds: int = 12) -> None:
     """비공개 채널은 @username 이 없어 숫자 ID 가 필요하다.
 
     사용법: 채널에 아무 글이나 하나 올린 뒤 이 명령을 실행한다.
+    봇이 아직 한 번도 폴링하지 않았다면 최근 24시간의 채널 글이 대기열에 남아 있다.
     """
-    print("채널에 아무 메시지나 하나 올린 뒤 기다리세요. (Ctrl+C 로 종료)\n")
+    print("최근 채널 글에서 chat ID 를 찾는 중...\n")
     offset = None
-    seen: set[int] = set()
-    for _ in range(30):
+    seen: dict[int, tuple[str, str]] = {}
+
+    for _ in range(rounds):
         updates = tg.get_updates(offset, timeout=10)
         for update in updates:
             offset = update["update_id"] + 1
-            for key in ("channel_post", "message", "edited_channel_post"):
+            for key in ("channel_post", "edited_channel_post", "message", "my_chat_member"):
                 chat = update.get(key, {}).get("chat")
                 if chat and chat["id"] not in seen:
-                    seen.add(chat["id"])
-                    title = chat.get("title") or chat.get("first_name", "")
-                    print(f"  {chat['type']:10} {chat['id']:>16}  {title}")
+                    seen[chat["id"]] = (chat.get("type", "?"),
+                                        chat.get("title") or chat.get("first_name", ""))
         if seen:
-            print("\n위 ID 를 .env 의 TELEGRAM_CHANNEL_ID 에 넣으세요.")
-            return
-    print("아무것도 못 찾았습니다. 봇이 채널 관리자인지, 채널에 글을 올렸는지 확인하세요.")
+            break
+
+    if not seen:
+        print("아무것도 못 찾았습니다.\n")
+        print("확인할 것:")
+        print("  1. 봇이 채널 관리자로 추가돼 있는지")
+        print("  2. 봇을 관리자로 추가한 뒤에 채널에 글을 올렸는지")
+        print("  3. 그 글이 24시간 이내인지 (오래되면 텔레그램이 큐에서 버립니다)")
+        print("\n채널에 아무 글이나 새로 올리고 다시 실행해보세요.")
+        return
+
+    print("찾았습니다:\n")
+    for chat_id, (chat_type, title) in seen.items():
+        print(f"  {chat_type:10} {chat_id:>16}  {title}")
+
+    channels = [c for c, (t, _) in seen.items() if t == "channel"]
+    if channels:
+        print(f"\n→ TELEGRAM_CHANNEL_ID 에 넣을 값:  {channels[0]}")
+    else:
+        print("\n채널(channel) 타입이 안 보입니다. 봇이 채널 관리자인지 확인하세요.")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -119,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
         datefmt="%H:%M:%S",
     )
 
-    cfg = load_config()
+    cfg = load_config(require_channel=not args.chatid)
     feeds = YoutubeFeeds(cfg.data_dir / "youtube_channels.json")
 
     if args.addfeed:

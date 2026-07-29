@@ -75,7 +75,11 @@ class Config:
         return (today - self.season_start).days + 1
 
 
-def load_config() -> Config:
+def load_config(require_channel: bool = True) -> Config:
+    """require_channel=False 는 --chatid 전용.
+
+    채널 ID 를 찾으려고 실행하는 명령이 채널 ID 가 없다고 거부당하면 안 된다.
+    """
     load_dotenv()
 
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
@@ -88,8 +92,12 @@ def load_config() -> Config:
         )
 
     channel = os.environ.get("TELEGRAM_CHANNEL_ID", "").strip()
-    if not channel:
-        raise SystemExit("TELEGRAM_CHANNEL_ID 이 없습니다. (@채널이름 또는 -100... 숫자 ID)")
+    if not channel and require_channel:
+        raise SystemExit(
+            "TELEGRAM_CHANNEL_ID 이 없습니다.\n"
+            "  공개 채널: @채널이름\n"
+            "  비공개 채널: -100 으로 시작하는 숫자 ID (python -m bot --chatid 로 찾기)"
+        )
 
     raw_start = os.environ.get("SEASON_START", "").strip()
     season_start = date.fromisoformat(raw_start) if raw_start else date.today()
