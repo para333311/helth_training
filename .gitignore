@@ -1,0 +1,23 @@
+# secrets — 봇 토큰은 절대 커밋하지 않는다
+.env
+.env.*
+!.env.example
+*.token
+secrets/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# node
+node_modules/
+
+# data
+*.db
+*.sqlite3
+data/
+
+# os
+.DS_Store
