@@ -1,0 +1,28 @@
+# secrets — 봇 토큰은 절대 커밋하지 않는다
+.env
+.env.*
+!.env.example
+*.token
+secrets/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# node
+node_modules/
+
+# 봇 런타임 데이터 (스트릭·체중 DB). 콘텐츠 재고인 content/data 는 추적한다.
+*.db
+*.sqlite3
+/data/
+
+# 구독자가 봇으로 보낸 사진은 file_id 로만 저장되지만,
+# 직접 넣은 이미지 파일은 커밋하지 않는다.
+content/photos/*
+!content/photos/README.txt
+
+# os
+.DS_Store
