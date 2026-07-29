@@ -27,6 +27,7 @@
 | [04. 오운완 인증](docs/04-verification-system.md) | 3단계 계단 구조, 스트릭 규칙, 인증률 장치 |
 | [05. 장기 유지 구조](docs/05-operations.md) | 배치 제작, 재고 관리, 번아웃 방지, 지표 |
 | [06. 봇 설치와 운영](docs/06-bot-setup.md) | 설치, chat ID 찾기, 자극 소스 3종, 명령어 |
+| [07. 라즈베리파이 상시 실행](docs/07-raspberry-pi.md) | DM 명령(`/done` 등)이 필요할 때 24시간 운영 |
 
 ## 콘텐츠 예시
 
