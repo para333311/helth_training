@@ -61,10 +61,28 @@ class Publisher:
 
     def _send(self, text: str, **kw) -> dict | None:
         try:
-            return self.tg.send_message(self.cfg.channel_id, text, **kw)
+            msg = self.tg.send_message(self.cfg.channel_id, text, **kw)
         except TelegramError as exc:
             log.error("발행 실패: %s", exc)
             return None
+        self._log_sent("텍스트", msg, text.split("\n")[0])
+        return msg
+
+    def _log_sent(self, kind: str, msg: dict | None, summary: str = "") -> None:
+        """무엇을 어디로 보냈는지 남긴다.
+
+        성공했을 때 아무 로그도 없으면 "발행은 됐다는데 채널에 없다"는 상황에서
+        어디로 갔는지 추적할 방법이 사라진다.
+        """
+        if not msg:
+            return
+        chat = msg.get("chat", {})
+        where = chat.get("title") or chat.get("username") or chat.get("first_name", "?")
+        log.info(
+            "발행함 [%s] → %s (%s, id=%s) msg=%s %s",
+            kind, where, chat.get("type", "?"), chat.get("id", "?"),
+            msg.get("message_id", "?"), summary[:40],
+        )
 
     # --- 잡 -----------------------------------------------------------------
 
@@ -107,11 +125,12 @@ class Publisher:
             return False
 
         try:
-            self.tg.send_photo(self.cfg.channel_id, image, caption=None)
+            msg = self.tg.send_photo(self.cfg.channel_id, image, caption=None)
         except TelegramError as exc:
             log.error("명언 카드 발행 실패: %s", exc)
             return False
 
+        self._log_sent("명언카드", msg, quote["text"].replace("\n", " "))
         self.store.mark_seen("quote", quote["text"])
         return True
 
@@ -150,11 +169,12 @@ class Publisher:
         full = f"{caption}\n\n{photo.credit}" if photo.credit else caption
 
         try:
-            self.tg.send_photo(self.cfg.channel_id, photo.ref, caption=full)
+            msg = self.tg.send_photo(self.cfg.channel_id, photo.ref, caption=full)
         except TelegramError as exc:
             log.error("사진 발행 실패: %s", exc)
             return False
 
+        self._log_sent("사진", msg, caption)
         if photo.key:
             self.store.mark_seen("photo", photo.key)
             if getattr(self.photos, "name", "") == "chain":

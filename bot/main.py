@@ -181,15 +181,27 @@ def main(argv: list[str] | None = None) -> int:
 
     log.info("봇 @%s 로 접속했습니다", me.get("username", "?"))
 
-    if args.check:
+    # 발행 대상을 먼저 확인해서 로그에 남긴다.
+    # 채널 ID 를 잘못 넣으면 발행 자체는 성공하고 엉뚱한 곳(주로 봇 DM)으로 가는데,
+    # 이걸 찍어두지 않으면 "성공했다는데 채널에 없다"에서 막힌다.
+    if not args.chatid:
         try:
             chat = tg.call("getChat", chat_id=cfg.channel_id)
-            log.info("채널 확인: %s (%s)", chat.get("title"), chat.get("id"))
+            kind = chat.get("type", "?")
+            log.info(
+                "발행 대상: %s (%s, id=%s)",
+                chat.get("title") or chat.get("username") or chat.get("first_name", "?"),
+                kind, chat.get("id"),
+            )
+            if kind != "channel":
+                log.warning("대상이 채널이 아닙니다 (%s). TELEGRAM_CHANNEL_ID 를 확인하세요.", kind)
+                log.warning("공개 채널이면 @채널이름, 비공개면 -100 으로 시작하는 숫자 ID 입니다.")
         except TelegramError as exc:
             log.error("채널에 접근할 수 없습니다: %s", exc)
-            log.error("봇이 채널 관리자인지, TELEGRAM_CHANNEL_ID 가 맞는지 확인하세요.")
-            log.error("비공개 채널이면 숫자 ID 가 필요합니다: python -m bot --chatid")
+            log.error("TELEGRAM_CHANNEL_ID=%r · 봇이 채널 관리자인지 확인하세요.", cfg.channel_id)
             return 1
+
+    if args.check:
         log.info(
             "미션 %d개 · 자극문구 %d개 · 퀴즈 %d개 · 내 사진 %d장 · 유튜브 채널 %d개",
             len(content.missions), len(content.quick_fixes), len(content.quizzes),
