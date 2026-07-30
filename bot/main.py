@@ -1,17 +1,17 @@
 """엔트리포인트.
 
     python -m bot                 상시 실행 (발행 + 명령 수신)
-    python -m bot --serve         수신 전용 (발행은 마키마가 지시할 때만)
+    python -m bot --serve         수신 전용. 발행은 GitHub Actions 등 외부가 맡을 때
     python -m bot --once photo    특정 잡을 즉시 1회 발행 (테스트용)
     python -m bot --list          잡 이름 목록
     python -m bot --chatid        비공개 채널의 숫자 chat ID 찾기
     python -m bot --check         설정과 채널 연결만 점검하고 종료
 
-마키마(코치) 연동 — 자세한 내용은 docs/09-makima-coach.md
+데이터 조회·기록 (터미널에서 직접. 자세한 건 docs/06-bot-setup.md)
 
-    python -m bot --brief --json          내 운동 데이터 스냅샷 (마키마 입력)
-    python -m bot --say "텍스트" --by 마키마   마키마가 쓴 글을 헬스봇이 발행
-    python -m bot --record condition=3    마키마가 물어본 답을 기록
+    python -m bot --brief [--json]        내 운동 데이터 스냅샷
+    python -m bot --say "텍스트"           채널에 한 줄 직접 발행
+    python -m bot --record condition=3    컨디션·체중·오운완 기록
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from .feeds import YoutubeFeeds
 from .jobs import Publisher
 from .photos import build_source
 from .scheduler import DailyJob, IntervalJob, Scheduler
-from .store import Store
+from .store import SchemaMismatch, Store
 from .tg import Telegram, TelegramError
 
 log = logging.getLogger("main")
@@ -130,10 +130,10 @@ TIERS = {"green": "🟢", "yellow": "🟡", "red": "🔴"}
 
 
 def record_values(cfg, store: Store, pairs: list[str]) -> int:
-    """마키마가 DM 으로 물어본 답을 DB 에 적는다.
+    """컨디션·체중·오운완을 DB 에 적는다.
 
-    마키마는 사람 말로 답을 받고("좀 피곤해") 그걸 숫자로 해석해서 이 명령을 부른다.
-    해석 책임은 마키마에게 있고, 여기서는 형식만 검증한다.
+    같은 값을 텔레그램 DM 명령(/condition, /weight, /done)으로도 넣을 수 있다.
+    이쪽은 노트북 터미널에서 직접 쓸 때의 경로다.
     """
     today = datetime.now(cfg.tz).date()
     uid = cfg.owner_id
@@ -197,6 +197,15 @@ def record_values(cfg, store: Store, pairs: list[str]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:
+        return _main(argv)
+    except SchemaMismatch as exc:
+        # 트레이스백은 원인을 가린다. 조치 방법만 그대로 보여준다.
+        print(str(exc), file=sys.stderr)
+        return 1
+
+
+def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="bot")
     parser.add_argument("--once", metavar="JOB", help="잡 1회 즉시 실행")
     parser.add_argument("--tick", action="store_true",
@@ -208,20 +217,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--feeds", action="store_true", help="등록된 유튜브 채널 목록")
     parser.add_argument("-v", "--verbose", action="store_true")
 
-    coach = parser.add_argument_group("마키마(코치) 연동")
+    coach = parser.add_argument_group("데이터 조회·기록")
     coach.add_argument("--brief", action="store_true",
-                       help="내 운동 데이터 스냅샷 출력 (마키마 입력용)")
+                       help="내 운동 데이터 스냅샷 출력")
     coach.add_argument("--json", action="store_true", help="--brief 를 JSON 으로")
     coach.add_argument("--say", metavar="TEXT",
-                       help="이 텍스트를 채널에 발행한다 (마키마가 지시하는 통로)")
+                       help="이 텍스트를 채널에 그대로 발행한다")
     coach.add_argument("--by", metavar="NAME", default="",
-                       help='--say 에 서명을 붙인다. 예: --by 마키마')
+                       help='--say 에 서명을 붙인다. 예: --by 코치')
     coach.add_argument("--pin", action="store_true", help="--say 한 글을 고정한다")
     coach.add_argument("--record", metavar="K=V", action="append", default=[],
                        help="데이터 기록. condition=1~5 / weight=71.2 / done=green|yellow|red "
                             "(여러 번 지정 가능)")
     coach.add_argument("--serve", action="store_true",
-                       help="수신 전용. 내장 스케줄러를 끈다 (발행을 마키마/외부 cron 이 맡을 때)")
+                       help="수신 전용. 내장 스케줄러를 끈다 (발행을 외부가 맡을 때)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -251,7 +260,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {item['channel_id']}  {item['name']}")
         return 0
 
-    # --- 마키마 연동: 네트워크가 필요 없는 명령들 ---------------------------
+    # --- 네트워크가 필요 없는 명령들 ----------------------------------------
     # 텔레그램에 붙기 전에 처리한다. 노트북이 오프라인이어도 데이터는 읽/쓰기 가능해야 한다.
 
     if args.record:
@@ -315,8 +324,8 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     if args.say:
-        # 마키마가 쓴 글을 헬스봇 이름으로 채널에 올린다.
-        # 마키마를 채널 관리자로 넣지 않아도 되는 대신, 누가 쓴 글인지 서명으로 구분한다.
+        # 정형 발행 말고 한 줄을 직접 올릴 때 쓴다.
+        # --by 를 주면 본문 끝에 서명이 붙어서 정형 발행과 구분된다.
         text = args.say.strip()
         if not text:
             log.error("--say 에 빈 문자열이 왔습니다.")
@@ -367,7 +376,7 @@ def main(argv: list[str] | None = None) -> int:
     handler.register_commands()
 
     if args.serve:
-        # 발행은 마키마(OpenClaw cron)나 외부 cron 이 맡고, 이 프로세스는 수신만 한다.
+        # 발행은 GitHub Actions 등 외부가 맡고, 이 프로세스는 수신만 한다.
         # 내장 스케줄러까지 돌면 같은 미션이 두 번 올라간다.
         log.info("수신 전용 모드 — 내장 스케줄러를 끕니다. 발행은 외부에서 지시하세요.")
     else:

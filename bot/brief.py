@@ -1,16 +1,14 @@
-"""마키마(코치)가 읽을 내 운동 데이터 스냅샷.
+"""내 운동 데이터 스냅샷.
 
-    python -m bot --brief          사람이 읽는 형태
-    python -m bot --brief --json   마키마가 읽는 형태
+    python -m bot --brief          터미널에서 읽는 형태
+    python -m bot --brief --json   프로그램이 읽는 형태
 
-왜 별도 모듈인가
-----------------
-마키마는 LLM 이라 숫자를 세는 걸 못 믿는다. "며칠 연속 쉬었나", "체중을 잰 지
-며칠 됐나" 같은 판단을 프롬프트 안에서 계산하게 두면 자주 틀리고, 틀린 숫자로
-독려하면 신뢰가 깨진다.
+지금 상태를 한 화면으로 보는 용도다. 연속 며칠인지, 며칠 쉬었는지, 체중을 잰 지
+얼마나 됐는지를 매번 손으로 세지 않아도 된다.
 
-그래서 판단은 여기서 미리 다 해서 flags 로 넘긴다. 마키마는 flags 를 보고
-말투와 내용만 정한다. 이게 토큰도 아끼고(무료 티어 유지) 정확도도 올린다.
+날짜 계산과 판단은 전부 여기서 끝내서 flags 로 내보낸다. 읽는 쪽은 flags 만
+보면 되므로, 나중에 이 출력을 다른 도구에 물리더라도 같은 계산을 다시
+구현할 필요가 없다.
 """
 
 from __future__ import annotations
@@ -95,25 +93,30 @@ def build_brief(cfg, store, content=None, feeds=None,
         },
     }
 
-    # --- 판단은 여기서 확정한다. 마키마는 이걸 해석만 한다. ---
+    # missed 는 오늘을 빼고 어제부터 거꾸로 센다. 그래서 오늘 이미 했더라도
+    # 어제 안 했으면 missed 는 1 이상이다. 아래 두 플래그를 done_today 로
+    # 막지 않으면 "오늘 끊긴다"와 "오늘 이미 했다"가 동시에 켜진다.
+    done_today = bool(last7 and last7[-1]["done"])
+
+    # --- 판단은 여기서 확정한다. 읽는 쪽은 해석만 하면 된다. ---
     brief["flags"] = {
-        # 3일 이상 안 했다 → 독려 강도를 올리고 🟢부터 다시 권한다
-        "slipping": missed >= 3,
-        # 어제 안 했다 → 오늘 끊기 직전. 가장 중요한 개입 시점
-        "streak_at_risk": missed == 1,
-        # 5일 이상 연속 → 칭찬하되 과훈련 경고를 같이 넣는다
+        # 3일 이상 쉬었고 오늘도 아직 안 했다 → 진입장벽을 최저로
+        "slipping": missed >= 3 and not done_today,
+        # 어제 안 했고 오늘도 아직 → 오늘 하면 이어진다. 가장 중요한 개입 시점
+        "streak_at_risk": missed == 1 and not done_today,
+        # 5일 이상 연속 → 과훈련을 같이 경계한다
         "on_fire": stats["streak"] >= 5,
-        # 컨디션 2 이하가 3일 이상 → 🔴을 말리고 휴식을 권한다
+        # 컨디션 2 이하가 3일 이상 → 🔴은 피하고 쉬는 쪽으로
         "needs_rest": len(cond_scores) >= 3 and all(s <= 2 for s in cond_scores[:3]),
-        # 컨디션을 최근에 안 물어봤다 → 오늘 물어본다
+        # 오늘 컨디션 기록이 없다 → /condition 으로 남기면 꺼진다
         "condition_stale": not conds or conds[0]["day"] != today.isoformat(),
-        # 체중을 8일 이상 안 쟀다 → 일요일에 상기시킨다
+        # 체중을 8일 이상 안 쟀다
         "weight_stale": days_since_weigh is None or days_since_weigh >= WEIGHT_STALE_DAYS,
-        # 체중 정체 → 운동보다 270kcal(식사) 쪽으로 화제를 돌린다
+        # 체중 정체 → 운동보다 270kcal(식사) 쪽 문제다
         "weight_stalled": stalled,
-        # 오늘 아직 오운완 기록이 없다
-        "done_today": bool(last7 and last7[-1]["done"]),
-        # 자극 소스가 없어 텍스트만 나가는 상태 → 사용자에게 알려야 한다
+        # 오늘 오운완이 기록됐다
+        "done_today": done_today,
+        # 자극 소스가 없어 텍스트만 나가는 상태
         "no_media_source": (
             brief["sources"]["youtube_channels"] == 0
             and brief["sources"]["my_photos"] == 0
@@ -129,7 +132,7 @@ def _bar(done: bool) -> str:
 
 
 def format_brief(b: dict) -> str:
-    """사람이 터미널에서 읽는 형태. 마키마가 아니라 내가 확인할 때 쓴다."""
+    """터미널에서 눈으로 확인할 때 쓰는 형태."""
     s, w, c, f = b["season"], b["weight"], b["condition"], b["flags"]
     week_line = "".join(_bar(d["done"]) for d in b["last_7_days"])
 

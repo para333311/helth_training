@@ -1,9 +1,9 @@
-"""마키마 코치 연동 회귀 테스트.
+"""--brief flags 회귀 테스트.
 
-    python tests/coach_smoke.py
+    python tests/brief_smoke.py
 
 의존성 없이 돈다. 임시 DB 를 만들어 flags 가 실제 데이터에 맞게 켜지는지 확인한다.
-flags 가 틀리면 코치가 틀린 말을 하고, 그게 이 구조에서 가장 치명적인 고장이다.
+flags 가 틀리면 요약이 틀린 상태를 보여주므로, 여기가 가장 중요한 회귀 지점이다.
 """
 
 from __future__ import annotations
@@ -87,6 +87,28 @@ def case_streak_at_risk() -> None:
     check("slipping 아님", b["flags"]["slipping"], False)
     check("done_today 아님", b["flags"]["done_today"], False)
 
+    # 오늘 하고 나면 더 이상 "끊길 위기"가 아니다.
+    # missed 는 어제부터 세므로 오늘 기록해도 1로 남는다 — done_today 로 막아야 한다.
+    s.record_done(UID, TODAY, tier="green")
+    b = build_brief(cfg, s, now=NOW)
+    check("오늘 한 뒤 done_today", b["flags"]["done_today"], True)
+    check("오늘 한 뒤 streak_at_risk 꺼짐", b["flags"]["streak_at_risk"], False)
+
+
+def case_slipping_cleared_today() -> None:
+    """오래 쉬었어도 오늘 했으면 slipping 이 아니다."""
+    print("\n[2-1] 오래 쉬다가 오늘 함 — slipping 해제")
+    cfg = FakeConfig(TODAY - timedelta(days=20))
+    s = new_store()
+    s.record_done(UID, TODAY - timedelta(days=8), tier="green")
+    b = build_brief(cfg, s, now=NOW)
+    check("오늘 하기 전 slipping", b["flags"]["slipping"], True)
+
+    s.record_done(UID, TODAY, tier="green")
+    b = build_brief(cfg, s, now=NOW)
+    check("오늘 한 뒤 slipping 꺼짐", b["flags"]["slipping"], False)
+    check("done_today", b["flags"]["done_today"], True)
+
 
 def case_on_fire() -> None:
     """5일 연속 — 칭찬 + 과훈련 경고."""
@@ -144,7 +166,7 @@ def case_weight() -> None:
 
 
 def case_published_today() -> None:
-    """코치가 헬스봇과 같은 말을 두 번 하지 않도록."""
+    """오늘 이미 발행한 잡을 구분해서, 같은 내용을 두 번 내보내지 않도록."""
     print("\n[6] 오늘 발행된 잡 목록")
     cfg = FakeConfig(TODAY - timedelta(days=20))
     s = new_store()
@@ -164,7 +186,7 @@ def case_season_over() -> None:
 
 
 def case_json_safe() -> None:
-    """마키마가 받는 건 JSON 이다. 직렬화가 깨지면 코치가 통째로 멈춘다."""
+    """--json 출력이 깨지면 이 데이터를 쓰는 쪽이 전부 멈춘다."""
     print("\n[8] JSON 직렬화")
     import json
 
@@ -181,8 +203,9 @@ def case_json_safe() -> None:
 
 
 def main() -> int:
-    print("마키마 코치 연동 회귀 테스트")
-    for fn in (case_fresh, case_streak_at_risk, case_on_fire, case_needs_rest,
+    print("--brief flags 회귀 테스트")
+    for fn in (case_fresh, case_streak_at_risk, case_slipping_cleared_today,
+               case_on_fire, case_needs_rest,
                case_weight, case_published_today, case_season_over, case_json_safe):
         fn()
 

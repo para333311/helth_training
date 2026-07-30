@@ -73,7 +73,7 @@ def check_python() -> None:
     if v >= (3, 14):
         warn(
             f"{v.major}.{v.minor} 는 검증 범위(3.11~3.13)보다 새롭다",
-            "문제가 생기면 tests/coach_smoke.py 와 tests/env_encoding.py 결과를 함께 보고",
+            "문제가 생기면 tests/brief_smoke.py 와 tests/env_encoding.py 결과를 함께 보고",
         )
 
 
@@ -178,7 +178,7 @@ def check_env() -> None:
         v = os.environ.get(k, "").strip()
         if not v:
             hint = {
-                "OWNER_USER_ID": "비면 코치가 빈 데이터를 본다. @userinfobot 에서 확인",
+                "OWNER_USER_ID": "비면 --brief 가 전부 0 으로 나온다. @userinfobot 에서 확인",
                 "TELEGRAM_BOT_USERNAME": "체크인 링크가 빠진다",
                 "SEASON_START": "비면 매일 D+1 로 나온다",
             }[k]

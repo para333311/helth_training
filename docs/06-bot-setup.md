@@ -218,10 +218,73 @@ python -m bot --feeds     # 등록 목록
 | `/mission` | 오늘의 미션 다시 보기 |
 | `/random` | 지금 할 수 있는 30초 운동 |
 | `/weight 62.4` | 체중 기록 (본인만 조회) |
-| `/condition 3` | 오늘 컨디션 기록 (1~5) — 마키마 코치 연동 시 판단 근거가 된다 |
+| `/condition 3` | 오늘 컨디션 기록 (1~5) |
 | `/myphotos` | 내가 보낸 사진 수 / 전량 삭제 |
 
 **사진을 그냥 보내면** 채널 로테이션에 익명 등록되고 오운완도 함께 기록된다.
+
+### 터미널에서 직접 (봇이 안 떠 있어도 됨)
+
+DM 명령과 같은 일을 노트북 터미널에서도 할 수 있다.
+`--brief` 와 `--record` 는 **로컬 DB 만 읽고 쓰므로 인터넷이 끊겨 있어도, `TELEGRAM_CHANNEL_ID` 가 없어도 동작한다.**
+
+```bash
+python -m bot --brief                 # 지금 상태 한 화면으로
+python -m bot --brief --json          # 같은 내용을 JSON 으로
+
+python -m bot --record condition=3    # 1~5
+python -m bot --record weight=71.2
+python -m bot --record done=green     # green | yellow | red
+python -m bot --record condition=4 --record done=yellow   # 여러 개 한 번에
+
+python -m bot --say "오늘은 계단만"                  # 채널에 한 줄 직접 발행
+python -m bot --say "이번 시즌 규칙" --pin           # 발행하고 고정
+python -m bot --say "쉬는 날입니다" --by 코치         # 끝에 "— 코치" 서명
+```
+
+`--brief` 출력 예시:
+
+```
+2026-07-30 (목) · 유산소
+3kg 프로젝트  D+7/84  1주차
+
+연속        1일 (최고 1일)
+이번 주     1/7      최근7일 ······■
+누적        1일
+컨디션      2/5 (2026-07-30)  7일 평균 2.0
+체중        기록 없음
+
+flags: slipping, weight_stale
+```
+
+`flags` 는 날짜 계산이 끝난 상태로 나온다 — 며칠 쉬었는지, 체중을 잰 지 며칠 됐는지를
+직접 세지 않아도 된다.
+
+| flag | 뜻 |
+|---|---|
+| `streak_at_risk` | 어제 안 함. 오늘 하면 이어짐 |
+| `slipping` | 3일 이상 안 함 |
+| `on_fire` | 5일 이상 연속 |
+| `needs_rest` | 컨디션 2 이하가 3일 연속 |
+| `condition_stale` | 오늘 컨디션 기록 없음 |
+| `weight_stale` | 8일 이상 안 쟀음 |
+| `weight_stalled` | 최근 2회 차이 0.3kg 미만 |
+| `done_today` | 오늘 오운완 기록됨 |
+| `no_media_source` | 자극 소스가 하나도 없음 |
+| `season_over` | 시즌 84일 지남 |
+
+> `OWNER_USER_ID` 가 비어 있으면 `--brief` 가 전부 0 으로 나온다. `.env` 에 넣어둘 것.
+
+### 자가 진단
+
+```bash
+python tests/preflight.py --net     # 환경 전반 (파이썬·패키지·폰트·.env·API)
+python tests/env_encoding.py        # .env BOM 회귀
+python tests/brief_smoke.py         # --brief flags 로직
+```
+
+`preflight.py` 는 문제가 있으면 원인과 조치를 한국어로 같이 출력한다.
+종료 코드 0 이면 봇이 뜰 수 있는 상태다.
 
 ### 스트릭 규칙
 

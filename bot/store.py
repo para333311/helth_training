@@ -38,8 +38,8 @@ CREATE TABLE IF NOT EXISTS job_runs (
     last_run TEXT NOT NULL
 );
 
--- 컨디션 기록. 마키마(코치)가 저녁에 물어보고 답을 여기 적는다.
--- 이 값이 있어야 "어제 2점이었는데 오늘도 했구나" 같은 말이 가능해진다.
+-- 컨디션 기록. /condition 1~5 DM 명령으로 직접 남긴다.
+-- needs_rest 판단(컨디션 2 이하가 3일 연속)의 근거가 된다.
 CREATE TABLE IF NOT EXISTS conditions (
     user_id INTEGER NOT NULL,
     day     TEXT NOT NULL,
@@ -82,12 +82,57 @@ CREATE TABLE IF NOT EXISTS submitted_photos (
 """
 
 
+# 코드가 실제로 SELECT 하는 컬럼들. 스키마가 바뀐 뒤 기존 DB 를 열었을 때
+# 어디가 어긋났는지 즉시 알기 위한 것이다.
+EXPECTED_COLUMNS = {
+    "users": {"user_id", "current_streak", "best_streak", "last_done"},
+    "done_log": {"user_id", "day", "tier", "kind"},
+    "weights": {"user_id", "day", "kg"},
+    "conditions": {"user_id", "day", "score"},
+    "job_runs": {"job", "last_run"},
+    "submitted_photos": {"file_id", "user_id", "caption", "used"},
+}
+
+
+class SchemaMismatch(RuntimeError):
+    pass
+
+
 class Store:
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         self._path = path
         with self._conn() as c:
             c.executescript(SCHEMA)
+            self._verify_schema(c)
+
+    @staticmethod
+    def _verify_schema(conn) -> None:
+        """기존 DB 가 지금 코드와 맞는지 확인한다.
+
+        `CREATE TABLE IF NOT EXISTS` 는 이미 있는 테이블을 절대 고치지 않는다.
+        그래서 스키마를 바꾼 뒤 옛 DB 를 열면 테이블 생성은 조용히 넘어가고,
+        한참 뒤 엉뚱한 곳에서 "no such column: ..." 로 죽는다.
+        여기서 미리 잡아서 무엇을 해야 하는지까지 알려준다.
+        """
+        problems = []
+        for table, expected in EXPECTED_COLUMNS.items():
+            rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+            if not rows:
+                continue  # 방금 만들어졌거나 아직 안 쓰는 테이블
+            actual = {r["name"] for r in rows}
+            missing = expected - actual
+            if missing:
+                problems.append(f"  {table}: {', '.join(sorted(missing))} 컬럼이 없음")
+
+        if problems:
+            raise SchemaMismatch(
+                "DB 스키마가 지금 코드와 맞지 않습니다:\n"
+                + "\n".join(problems)
+                + "\n\n예전 버전이 만든 DB 입니다. 기록이 아깝지 않으면 지우고 다시 만드세요:\n"
+                "  rm data/helth.db      (Windows: del data\\helth.db)\n"
+                "기록을 살려야 하면 지우기 전에 파일을 복사해두고 알려주세요."
+            )
 
     @contextmanager
     def _conn(self):
@@ -227,7 +272,7 @@ class Store:
         baseline = first["kg"] if first else kg
         return kg, (baseline - kg) if first else None
 
-    # --- 컨디션 (마키마가 물어보고 기록) --------------------------------------
+    # --- 컨디션 --------------------------------------------------------------
 
     def record_condition(self, user_id: int, day: date, score: int,
                          note: str | None = None) -> None:
@@ -251,7 +296,7 @@ class Store:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    # --- 마키마(코치)용 조회 ---------------------------------------------------
+    # --- 요약(--brief)용 조회 ---------------------------------------------------
 
     def recent_days(self, user_id: int, days: int = 7,
                     today: date | None = None) -> list[dict]:
@@ -284,7 +329,7 @@ class Store:
         """오늘을 제외하고, 어제부터 거꾸로 며칠 연속 안 했는지.
 
         since (보통 시즌 시작일) 이전으로는 세지 않는다. 이게 없으면 기록이 하나도
-        없는 첫날에 "60일 연속 쉬었다"가 나와서 코치가 엉뚱한 말을 하게 된다.
+        없는 첫날에 "60일 연속 쉬었다"가 나와서 엉뚱한 숫자가 표시된다.
         """
         today = today or date.today()
         with self._conn() as c:
@@ -320,7 +365,7 @@ class Store:
         return row["kg"] if row else None
 
     def job_runs_today(self, today: date | None = None) -> list[str]:
-        """오늘 이미 발행된 잡 이름. 코치가 같은 말을 두 번 하지 않게 하는 데 쓴다."""
+        """오늘 이미 발행된 잡 이름. 같은 내용을 두 번 내보내지 않으려고 쓴다."""
         today = today or date.today()
         with self._conn() as c:
             rows = c.execute("SELECT job, last_run FROM job_runs").fetchall()
