@@ -1,156 +1,168 @@
-"""마키마(코치)가 발언 전에 읽는 요약 데이터.
+"""마키마(코치)가 읽을 내 운동 데이터 스냅샷.
 
-`python -m bot --brief --json` 이 이 모듈의 출력이다.
-숫자는 전부 여기서 계산해서 넘긴다 — 호출부(LLM)가 직접 세면 틀리기 쉽고,
-틀린 숫자로 독려하면 신뢰가 깨진다는 게 secretary1/openclaw/coach-persona.md 의 전제다.
+    python -m bot --brief          사람이 읽는 형태
+    python -m bot --brief --json   마키마가 읽는 형태
+
+왜 별도 모듈인가
+----------------
+마키마는 LLM 이라 숫자를 세는 걸 못 믿는다. "며칠 연속 쉬었나", "체중을 잰 지
+며칠 됐나" 같은 판단을 프롬프트 안에서 계산하게 두면 자주 틀리고, 틀린 숫자로
+독려하면 신뢰가 깨진다.
+
+그래서 판단은 여기서 미리 다 해서 flags 로 넘긴다. 마키마는 flags 를 보고
+말투와 내용만 정한다. 이게 토큰도 아끼고(무료 티어 유지) 정확도도 올린다.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import date, timedelta
+import json
+from datetime import date, datetime
 
 from .content import WEEKDAY_THEME
 
-JOB_NAMES = [
-    "mission", "photo", "quickfix", "quickfix_weekend",
-    "quiz", "checkin", "weekly", "reset_day",
-]
-
-# coach-persona.md 의 flag 표와 1:1 대응.
+# 이 일수 이상 체중을 안 재면 stale 로 본다. 주 1회(일요일) 원칙이라 8일.
 WEIGHT_STALE_DAYS = 8
-WEIGHT_STALLED_KG = 0.3
-SLIPPING_DAYS = 3
-ON_FIRE_STREAK = 5
-NEEDS_REST_WINDOW = 3
-NEEDS_REST_MAX_CONDITION = 2
+
+WEEKDAY_KO = ["월", "화", "수", "목", "금", "토", "일"]
 
 
-@dataclass
-class Brief:
-    date: str
-    day_index: int
-    season_days: int
-    theme: str
-    streak: int
-    best_streak: int
-    week: int
-    total: int
-    condition_today: int | None
-    weight_today: float | None
-    flags: list[str] = field(default_factory=list)
-    published_today: list[str] = field(default_factory=list)
-
-    def to_dict(self) -> dict:
-        return {
-            "date": self.date,
-            "day_index": self.day_index,
-            "season_days": self.season_days,
-            "theme": self.theme,
-            "streak": self.streak,
-            "best_streak": self.best_streak,
-            "week": self.week,
-            "total": self.total,
-            "condition_today": self.condition_today,
-            "weight_today": self.weight_today,
-            "flags": self.flags,
-            "published_today": self.published_today,
-        }
-
-
-def _has_media_source(cfg, store) -> bool:
-    if cfg.unsplash_key or cfg.pexels_key:
-        return True
-    if store.count_photos() > 0:
-        return True
-    if cfg.photo_dir.exists() and any(
-        p.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"} for p in cfg.photo_dir.iterdir()
-    ):
-        return True
-    return False
-
-
-def build_brief(cfg, store, content, feeds, today: date) -> Brief:
-    if not cfg.owner_id:
-        raise ValueError(
-            "OWNER_USER_ID 가 없습니다. --brief 는 누구 데이터를 읽을지 알아야 합니다."
-        )
-
+def build_brief(cfg, store, content=None, feeds=None,
+                now: datetime | None = None) -> dict:
+    now = now or datetime.now(cfg.tz)
+    today: date = now.date()
     uid = cfg.owner_id
-    stats = store.stats(uid, today)
-    d_index = cfg.day_index(today)
-    theme = WEEKDAY_THEME[today.weekday()][1]
 
-    done_today = store.done_on(uid, today)
-    condition_today = store.condition_on(uid, today)
-    last_weight = store.last_weight(uid)
-    weight_today = last_weight[1] if last_weight and last_weight[0] == today else None
+    stats = store.stats(uid, today) if uid else {"streak": 0, "best": 0, "week": 0, "total": 0}
+    last7 = store.recent_days(uid, 7, today) if uid else []
+    missed = store.missed_in_a_row(uid, today, since=cfg.season_start) if uid else 0
+    conds = store.recent_conditions(uid, 7, today) if uid else []
+    weights = store.weight_history(uid, 12) if uid else []
+    baseline = store.weight_baseline(uid) if uid else None
 
-    flags: list[str] = []
+    cond_scores = [c["score"] for c in conds]
+    cond_latest = conds[0] if conds else None
+    cond_avg = round(sum(cond_scores) / len(cond_scores), 1) if cond_scores else None
 
-    # gap: last_done 이후 며칠 지났는가. gap==1 이면 어제까지는 정상(오늘만 아직).
-    # gap==2 면 정확히 어제 하루가 비었다 — 오늘이 그걸 만회할 마지막 기회.
-    # gap>=3 이면 이미 여러 날 비었다 — 급한 회복보다 진입장벽을 낮추는 쪽.
-    last_done = stats["last_done"]
-    gap = (today - last_done).days if last_done else None
+    latest_w = weights[0] if weights else None
+    lost = round(baseline - latest_w["kg"], 1) if (baseline and latest_w) else None
+    days_since_weigh = None
+    if latest_w:
+        days_since_weigh = (today - date.fromisoformat(latest_w["day"])).days
 
-    if d_index > 1 and not done_today:
-        if gap == 2:
-            flags.append("streak_at_risk")
-        elif gap is None or gap >= SLIPPING_DAYS:
-            flags.append("slipping")
+    # 최근 2회 체중 비교 — 정체 판단용
+    stalled = False
+    if len(weights) >= 2:
+        stalled = abs(weights[0]["kg"] - weights[1]["kg"]) < 0.3
 
-    if stats["streak"] >= ON_FIRE_STREAK:
-        flags.append("on_fire")
+    day_index = cfg.day_index(today)
+    weekday = today.weekday()
 
-    recent = store.recent_conditions(uid, today, NEEDS_REST_WINDOW)
-    if all(c is not None and c <= NEEDS_REST_MAX_CONDITION for c in recent):
-        flags.append("needs_rest")
+    brief = {
+        "generated_at": now.isoformat(timespec="seconds"),
+        "today": today.isoformat(),
+        "weekday": WEEKDAY_KO[weekday],
+        "theme": WEEKDAY_THEME.get(weekday, ("", ""))[1],
+        "season": {
+            "name": cfg.season_name,
+            "day": day_index,
+            "total_days": cfg.season_days,
+            "week": max(1, (day_index - 1) // 7 + 1),
+            "goal_kg": cfg.goal_kg,
+        },
+        "streak": {"current": stats["streak"], "best": stats["best"]},
+        "week_done": stats["week"],
+        "total_done": stats["total"],
+        "missed_in_a_row": missed,
+        "last_7_days": last7,
+        "condition": {
+            "latest": cond_latest,
+            "avg_7d": cond_avg,
+            "log": conds,
+        },
+        "weight": {
+            "latest_kg": latest_w["kg"] if latest_w else None,
+            "measured_on": latest_w["day"] if latest_w else None,
+            "days_since_weigh": days_since_weigh,
+            "baseline_kg": baseline,
+            "lost_kg": lost,
+            "history": weights,
+        },
+        "published_today": store.job_runs_today(today),
+        "sources": {
+            "youtube_channels": len(feeds.channels()) if feeds else 0,
+            "my_photos": store.count_photos(),
+            "stock_api": bool(cfg.unsplash_key or cfg.pexels_key),
+        },
+    }
 
-    if condition_today is None:
-        flags.append("condition_stale")
-
-    if last_weight is None or (today - last_weight[0]).days >= WEIGHT_STALE_DAYS:
-        flags.append("weight_stale")
-
-    two = store.last_two_weights(uid)
-    if len(two) == 2 and abs(two[0][1] - two[1][1]) < WEIGHT_STALLED_KG:
-        flags.append("weight_stalled")
-
-    if done_today:
-        flags.append("done_today")
-
-    if not _has_media_source(cfg, store):
-        flags.append("no_media_source")
-
-    if d_index > cfg.season_days:
-        flags.append("season_over")
-
-    return Brief(
-        date=today.isoformat(),
-        day_index=d_index,
-        season_days=cfg.season_days,
-        theme=theme,
-        streak=stats["streak"],
-        best_streak=stats["best"],
-        week=stats["week"],
-        total=stats["total"],
-        condition_today=condition_today,
-        weight_today=weight_today,
-        flags=flags,
-        published_today=store.published_today(JOB_NAMES, today),
-    )
+    # --- 판단은 여기서 확정한다. 마키마는 이걸 해석만 한다. ---
+    brief["flags"] = {
+        # 3일 이상 안 했다 → 독려 강도를 올리고 🟢부터 다시 권한다
+        "slipping": missed >= 3,
+        # 어제 안 했다 → 오늘 끊기 직전. 가장 중요한 개입 시점
+        "streak_at_risk": missed == 1,
+        # 5일 이상 연속 → 칭찬하되 과훈련 경고를 같이 넣는다
+        "on_fire": stats["streak"] >= 5,
+        # 컨디션 2 이하가 3일 이상 → 🔴을 말리고 휴식을 권한다
+        "needs_rest": len(cond_scores) >= 3 and all(s <= 2 for s in cond_scores[:3]),
+        # 컨디션을 최근에 안 물어봤다 → 오늘 물어본다
+        "condition_stale": not conds or conds[0]["day"] != today.isoformat(),
+        # 체중을 8일 이상 안 쟀다 → 일요일에 상기시킨다
+        "weight_stale": days_since_weigh is None or days_since_weigh >= WEIGHT_STALE_DAYS,
+        # 체중 정체 → 운동보다 270kcal(식사) 쪽으로 화제를 돌린다
+        "weight_stalled": stalled,
+        # 오늘 아직 오운완 기록이 없다
+        "done_today": bool(last7 and last7[-1]["done"]),
+        # 자극 소스가 없어 텍스트만 나가는 상태 → 사용자에게 알려야 한다
+        "no_media_source": (
+            brief["sources"]["youtube_channels"] == 0
+            and brief["sources"]["my_photos"] == 0
+            and not brief["sources"]["stock_api"]
+        ),
+        "season_over": day_index > cfg.season_days,
+    }
+    return brief
 
 
-def render_text(brief: Brief) -> str:
+def _bar(done: bool) -> str:
+    return "■" if done else "·"
+
+
+def format_brief(b: dict) -> str:
+    """사람이 터미널에서 읽는 형태. 마키마가 아니라 내가 확인할 때 쓴다."""
+    s, w, c, f = b["season"], b["weight"], b["condition"], b["flags"]
+    week_line = "".join(_bar(d["done"]) for d in b["last_7_days"])
+
     lines = [
-        f"date: {brief.date}",
-        f"day_index: {brief.day_index}/{brief.season_days}",
-        f"theme: {brief.theme}",
-        f"streak: {brief.streak} (best {brief.best_streak}, week {brief.week}/7, total {brief.total})",
-        f"condition_today: {brief.condition_today if brief.condition_today is not None else '없음'}",
-        f"weight_today: {brief.weight_today if brief.weight_today is not None else '없음'}",
-        f"flags: {', '.join(brief.flags) if brief.flags else '(없음)'}",
-        f"published_today: {', '.join(brief.published_today) if brief.published_today else '(없음)'}",
+        f"{b['today']} ({b['weekday']}) · {b['theme']}",
+        f"{s['name']}  D+{s['day']}/{s['total_days']}  {s['week']}주차",
+        "",
+        f"연속        {b['streak']['current']}일 (최고 {b['streak']['best']}일)",
+        f"이번 주     {b['week_done']}/7      최근7일 {week_line}",
+        f"누적        {b['total_done']}일",
     ]
+    if b["missed_in_a_row"]:
+        lines.append(f"쉰 날       어제부터 {b['missed_in_a_row']}일 연속")
+
+    if c["latest"]:
+        lines.append(f"컨디션      {c['latest']['score']}/5 ({c['latest']['day']})"
+                     + (f"  7일 평균 {c['avg_7d']}" if c["avg_7d"] else ""))
+    else:
+        lines.append("컨디션      기록 없음")
+
+    if w["latest_kg"]:
+        lost = f"  −{w['lost_kg']}kg" if w["lost_kg"] else ""
+        lines.append(f"체중        {w['latest_kg']}kg ({w['measured_on']}, "
+                     f"{w['days_since_weigh']}일 전){lost}")
+    else:
+        lines.append("체중        기록 없음")
+
+    on = [k for k, v in f.items() if v]
+    lines += ["", "flags: " + (", ".join(on) if on else "없음")]
+    if b["published_today"]:
+        lines.append("오늘 발행: " + ", ".join(b["published_today"]))
     return "\n".join(lines)
+
+
+def dump_json(b: dict) -> str:
+    return json.dumps(b, ensure_ascii=False, indent=2)

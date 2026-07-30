@@ -2,3 +2,12 @@ requests>=2.31
 
 # 명언 카드 이미지 생성용. 없으면 명언 카드만 건너뛰고 나머지는 정상 동작한다.
 Pillow>=10.0
+
+# 시간대 데이터베이스.
+#
+# Windows 에는 IANA 시간대 DB 가 없어서 이게 없으면 봇이 아예 뜨지 않는다:
+#   zoneinfo._common.ZoneInfoNotFoundError: 'No time zone found with key Asia/Seoul'
+#
+# 리눅스/맥은 OS 가 제공하므로 사실상 불필요하지만, 컨테이너처럼 tzdata 를
+# 뺀 최소 이미지에서도 같은 오류가 나므로 조건 없이 설치한다. 용량은 작다.
+tzdata
