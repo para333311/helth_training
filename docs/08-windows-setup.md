@@ -168,6 +168,51 @@ PowerShell 창을 계속 띄워두는 방식은 창을 닫으면 봇도 죽는�
 
 작업 관리자(`Ctrl+Shift+Esc`) → 세부 정보 탭에서 `pythonw.exe` 가 보이면 동작 중이다.
 
+### 7-4. GUI 없이 PowerShell 로 등록하기
+
+7-2 를 클릭으로 하기 어려운 상황(원격, 자동화, 마키마가 대신 실행)에서는
+아래 한 덩어리로 같은 작업을 만들 수 있다. `-Mode` 로 동작을 고른다.
+
+```powershell
+param(
+  [string]$BotDir = "$HOME\helth_training",
+  [ValidateSet('serve','full')] [string]$Mode = 'serve',
+  [string]$TaskName = 'helth-bot'
+)
+
+# pythonw.exe = 콘솔 창 없는 파이썬. venv 가 있으면 그걸, 없으면 전역을 쓴다.
+$pyw = Join-Path $BotDir '.venv\Scripts\pythonw.exe'
+if (-not (Test-Path $pyw)) { $pyw = (Get-Command pythonw.exe).Source }
+
+# serve = DM 만 받고 발행은 안 함 / full = 내부 스케줄러까지 켜서 발행
+$botArgs = if ($Mode -eq 'serve') { '-m bot --serve' } else { '-m bot' }
+
+$action  = New-ScheduledTaskAction -Execute $pyw -Argument $botArgs -WorkingDirectory $BotDir
+$trigger = New-ScheduledTaskTrigger -AtLogOn
+$settings = New-ScheduledTaskSettingsSet `
+    -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+    -StartWhenAvailable -RestartInterval (New-TimeSpan -Minutes 1) -RestartCount 3
+
+Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
+    -Settings $settings -Description "헬스봇 ($Mode)" | Out-Null
+
+Start-ScheduledTask -TaskName $TaskName
+Get-ScheduledTask -TaskName $TaskName | Select-Object TaskName, State
+```
+
+> **`-Mode serve` 로 먼저 등록할 것.** `--serve` 는 DM 만 받고 **발행은 하지
+> 않는다.** GitHub Actions 가 아직 켜져 있는 동안에도 안전하게 띄울 수 있어서
+> 중복 발행이 원천적으로 불가능하다.
+>
+> Actions 를 끈 다음에 같은 명령을 `-Mode full` 로 다시 실행하면 내부
+> 스케줄러가 켜지면서 발행 주체가 노트북으로 넘어온다.
+> 순서를 지키는 것이 중요한 이유는 [09번 문서](09-makima-coach.md)에 있다.
+
+이 방식은 GUI 등록과 결과가 같지만 "가장 높은 권한으로 실행"과 "로그온 여부
+무관 실행"은 빠져 있다. 로그인 후 자동 시작으로 충분하면 그대로 쓰고,
+로그아웃 상태에서도 돌려야 하면 7-2 의 GUI 설정을 쓴다.
+
 ---
 
 ## 8. 로그 확인

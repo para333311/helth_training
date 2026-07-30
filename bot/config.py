@@ -12,11 +12,18 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def load_dotenv(path: Path | None = None) -> None:
-    """의존성 없이 .env 를 읽어 os.environ 에 채운다. 이미 있는 값은 덮지 않는다."""
+    """의존성 없이 .env 를 읽어 os.environ 에 채운다. 이미 있는 값은 덮지 않는다.
+
+    인코딩은 utf-8 로 읽는다. Windows PowerShell 의
+    `Set-Content -Encoding UTF8` 은 파일 앞에 BOM(\\ufeff)을 붙이는데,
+    이걸 utf-8 로 읽으면 첫 줄 키가 "\\ufeffTELEGRAM_BOT_TOKEN" 이 되어
+    토큰이 없다는 엉뚱한 오류가 난다. utf-8 는 BOM 이 있으면 벗기고
+    없으면 그냥 읽으므로 양쪽 다 안전하다.
+    """
     path = path or ROOT / ".env"
     if not path.exists():
         return
-    for raw in path.read_text(encoding="utf-8").splitlines():
+    for raw in path.read_text(encoding="utf-8-sig").splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
