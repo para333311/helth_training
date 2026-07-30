@@ -29,6 +29,7 @@
 | [06. 봇 설치와 운영](docs/06-bot-setup.md) | 설치, chat ID 찾기, 자극 소스 3종, 명령어 |
 | [07. 라즈베리파이 상시 실행](docs/07-raspberry-pi.md) | DM 명령(`/done` 등)이 필요할 때 24시간 운영 (Linux) |
 | [08. Windows 노트북 상시 실행](docs/08-windows-setup.md) | 위와 동일한 목적, Windows 작업 스케줄러 버전 |
+| [09. 마키마 코치 연동](docs/09-makima-coach.md) | 비서 AI(OpenClaw)가 코치 역할을 하고 헬스봇이 발행을 맡는 구조 |
 
 ## 콘텐츠 예시
 

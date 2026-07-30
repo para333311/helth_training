@@ -1,10 +1,17 @@
 """엔트리포인트.
 
     python -m bot                 상시 실행 (발행 + 명령 수신)
+    python -m bot --serve         수신 전용 (발행은 마키마가 지시할 때만)
     python -m bot --once photo    특정 잡을 즉시 1회 발행 (테스트용)
     python -m bot --list          잡 이름 목록
     python -m bot --chatid        비공개 채널의 숫자 chat ID 찾기
     python -m bot --check         설정과 채널 연결만 점검하고 종료
+
+마키마(코치) 연동 — 자세한 내용은 docs/09-makima-coach.md
+
+    python -m bot --brief --json          내 운동 데이터 스냅샷 (마키마 입력)
+    python -m bot --say "텍스트" --by 마키마   마키마가 쓴 글을 헬스봇이 발행
+    python -m bot --record condition=3    마키마가 물어본 답을 기록
 """
 
 from __future__ import annotations
@@ -15,6 +22,7 @@ import sys
 import time
 from datetime import datetime
 
+from .brief import build_brief, dump_json, format_brief
 from .commands import CommandHandler
 from .config import load_config
 from .content import Content
@@ -118,6 +126,76 @@ def find_chat_id(tg: Telegram, rounds: int = 12) -> None:
         print("\n채널(channel) 타입이 안 보입니다. 봇이 채널 관리자인지 확인하세요.")
 
 
+TIERS = {"green": "🟢", "yellow": "🟡", "red": "🔴"}
+
+
+def record_values(cfg, store: Store, pairs: list[str]) -> int:
+    """마키마가 DM 으로 물어본 답을 DB 에 적는다.
+
+    마키마는 사람 말로 답을 받고("좀 피곤해") 그걸 숫자로 해석해서 이 명령을 부른다.
+    해석 책임은 마키마에게 있고, 여기서는 형식만 검증한다.
+    """
+    today = datetime.now(cfg.tz).date()
+    uid = cfg.owner_id
+    ok = True
+
+    for pair in pairs:
+        key, _, raw = pair.partition("=")
+        key, raw = key.strip().lower(), raw.strip()
+        if not raw:
+            print(f"값이 없습니다: {pair!r}  (예: condition=3)")
+            ok = False
+            continue
+
+        if key == "condition":
+            try:
+                score = int(raw)
+            except ValueError:
+                print(f"condition 은 1~5 정수입니다: {raw!r}")
+                ok = False
+                continue
+            if not 1 <= score <= 5:
+                print(f"condition 은 1~5 범위입니다: {score}")
+                ok = False
+                continue
+            store.record_condition(uid, today, score)
+            print(f"컨디션 {score}/5 기록 ({today})")
+
+        elif key == "weight":
+            try:
+                kg = float(raw)
+            except ValueError:
+                print(f"weight 는 숫자입니다: {raw!r}")
+                ok = False
+                continue
+            if not 25 <= kg <= 300:
+                print(f"체중이 범위를 벗어납니다: {kg}")
+                ok = False
+                continue
+            _, lost = store.record_weight(uid, today, kg)
+            msg = f"체중 {kg}kg 기록 ({today})"
+            if lost is not None:
+                msg += f" · 시작 대비 {lost:+.1f}kg"
+            print(msg)
+
+        elif key == "done":
+            tier = raw.lower()
+            if tier not in TIERS:
+                print(f"done 은 green|yellow|red 입니다: {raw!r}")
+                ok = False
+                continue
+            res = store.record_done(uid, today, tier=tier)
+            print(f"오운완 {TIERS[tier]} 기록 · 연속 {res['streak']}일 "
+                  f"(최고 {res['best']}일)"
+                  + ("  [오늘 이미 기록돼 있었음]" if res["already"] else ""))
+
+        else:
+            print(f"모르는 항목입니다: {key!r}  (condition / weight / done)")
+            ok = False
+
+    return 0 if ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="bot")
     parser.add_argument("--once", metavar="JOB", help="잡 1회 즉시 실행")
@@ -129,6 +207,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--addfeed", metavar="URL", help="유튜브 채널 등록 (URL 또는 @핸들)")
     parser.add_argument("--feeds", action="store_true", help="등록된 유튜브 채널 목록")
     parser.add_argument("-v", "--verbose", action="store_true")
+
+    coach = parser.add_argument_group("마키마(코치) 연동")
+    coach.add_argument("--brief", action="store_true",
+                       help="내 운동 데이터 스냅샷 출력 (마키마 입력용)")
+    coach.add_argument("--json", action="store_true", help="--brief 를 JSON 으로")
+    coach.add_argument("--say", metavar="TEXT",
+                       help="이 텍스트를 채널에 발행한다 (마키마가 지시하는 통로)")
+    coach.add_argument("--by", metavar="NAME", default="",
+                       help='--say 에 서명을 붙인다. 예: --by 마키마')
+    coach.add_argument("--pin", action="store_true", help="--say 한 글을 고정한다")
+    coach.add_argument("--record", metavar="K=V", action="append", default=[],
+                       help="데이터 기록. condition=1~5 / weight=71.2 / done=green|yellow|red "
+                            "(여러 번 지정 가능)")
+    coach.add_argument("--serve", action="store_true",
+                       help="수신 전용. 내장 스케줄러를 끈다 (발행을 마키마/외부 cron 이 맡을 때)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -137,7 +230,9 @@ def main(argv: list[str] | None = None) -> int:
         datefmt="%H:%M:%S",
     )
 
-    cfg = load_config(require_channel=not args.chatid)
+    # --brief / --record 는 채널로 아무것도 보내지 않으므로 채널 설정 없이도 돌아야 한다.
+    offline = args.brief or bool(args.record)
+    cfg = load_config(require_channel=not (args.chatid or offline))
     feeds = YoutubeFeeds(cfg.data_dir / "youtube_channels.json")
 
     if args.addfeed:
@@ -154,6 +249,24 @@ def main(argv: list[str] | None = None) -> int:
             print("등록된 채널이 없습니다.\n  python -m bot --addfeed https://www.youtube.com/@채널명")
         for item in items:
             print(f"  {item['channel_id']}  {item['name']}")
+        return 0
+
+    # --- 마키마 연동: 네트워크가 필요 없는 명령들 ---------------------------
+    # 텔레그램에 붙기 전에 처리한다. 노트북이 오프라인이어도 데이터는 읽/쓰기 가능해야 한다.
+
+    if args.record:
+        store = Store(cfg.db_path)
+        if not cfg.owner_id:
+            print("OWNER_USER_ID 가 설정돼 있지 않아 누구 기록인지 알 수 없습니다.")
+            print("  .env 에 OWNER_USER_ID=<내 텔레그램 user id> 를 넣으세요.")
+            return 1
+        return record_values(cfg, store, args.record)
+
+    if args.brief:
+        store = Store(cfg.db_path)
+        content = Content(cfg.data_dir)
+        b = build_brief(cfg, store, content, feeds)
+        print(dump_json(b) if args.json else format_brief(b))
         return 0
 
     tg = Telegram(cfg.token)
@@ -201,6 +314,29 @@ def main(argv: list[str] | None = None) -> int:
             log.error("TELEGRAM_CHANNEL_ID=%r · 봇이 채널 관리자인지 확인하세요.", cfg.channel_id)
             return 1
 
+    if args.say:
+        # 마키마가 쓴 글을 헬스봇 이름으로 채널에 올린다.
+        # 마키마를 채널 관리자로 넣지 않아도 되는 대신, 누가 쓴 글인지 서명으로 구분한다.
+        text = args.say.strip()
+        if not text:
+            log.error("--say 에 빈 문자열이 왔습니다.")
+            return 1
+        if args.by:
+            text = f"{text}\n\n— {args.by.strip()}"
+        try:
+            msg = tg.send_message(cfg.channel_id, text)
+        except TelegramError as exc:
+            log.error("발행 실패: %s", exc)
+            return 1
+        log.info("발행함 [%s] msg=%s", args.by or "헬스봇", msg.get("message_id"))
+        if args.pin:
+            try:
+                tg.pin(cfg.channel_id, msg["message_id"])
+                log.info("고정했습니다.")
+            except TelegramError as exc:
+                log.warning("고정 실패: %s", exc)
+        return 0
+
     if args.check:
         log.info(
             "미션 %d개 · 자극문구 %d개 · 퀴즈 %d개 · 내 사진 %d장 · 유튜브 채널 %d개",
@@ -230,16 +366,22 @@ def main(argv: list[str] | None = None) -> int:
     handler = CommandHandler(cfg, tg, store, content)
     handler.register_commands()
 
-    log.info(
-        "사진 %d분 주기 (%02d~%02d시), 미션 07:30, 체크인 22:00",
-        cfg.photo_interval_minutes, cfg.photo_start_hour, cfg.photo_end_hour,
-    )
+    if args.serve:
+        # 발행은 마키마(OpenClaw cron)나 외부 cron 이 맡고, 이 프로세스는 수신만 한다.
+        # 내장 스케줄러까지 돌면 같은 미션이 두 번 올라간다.
+        log.info("수신 전용 모드 — 내장 스케줄러를 끕니다. 발행은 외부에서 지시하세요.")
+    else:
+        log.info(
+            "사진 %d분 주기 (%02d~%02d시), 미션 07:30, 체크인 22:00",
+            cfg.photo_interval_minutes, cfg.photo_start_hour, cfg.photo_end_hour,
+        )
     log.info("시작합니다. Ctrl+C 로 종료.")
 
     while True:
         try:
             handler.poll(timeout=15)  # 명령 수신 (긴 폴링이 곧 틱 간격이 된다)
-            sched.tick()
+            if not args.serve:
+                sched.tick()
         except KeyboardInterrupt:
             log.info("종료합니다.")
             return 0
