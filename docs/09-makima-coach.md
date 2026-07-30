@@ -134,10 +134,24 @@ python -m bot --serve
 
    https://github.com/para333311/helth_training/actions/workflows/publish.yml
 
-   → 오른쪽 위 `⋯` → **Disable workflow**
+   → **`Filter workflow runs` 검색창 바로 오른쪽의 `⋯`** → **Disable workflow**
 
-   이렇게 끄면 예약 실행은 멈추고 수동 실행(Run workflow)도 함께 잠긴다.
-   노트북이 며칠 꺼져 있을 때만 다시 Enable 해서 수동으로 메꾸면 된다.
+   > 버튼이 두 종류라 헷갈린다. 각 실행 줄(`채널 발행 #8` …) 오른쪽에 달린 `⋯` 은
+   > 개별 실행 메뉴(Re-run / Delete)라서 Disable 이 없다.
+   > 필요한 건 목록 **위쪽**, 검색창과 같은 줄에 있는 `⋯` 이다.
+
+   **꺼진 것을 확인하는 방법** (셋 중 아무거나):
+   - 왼쪽 사이드바 워크플로 이름 옆에 `Disabled` 배지가 붙는다
+   - 노란 배너 `This workflow was disabled manually` 가 뜬다
+   - `Run workflow` 버튼이 `Enable workflow` 로 바뀐다
+
+   예약 실행이 멈추고 수동 실행(Run workflow)도 함께 잠긴다.
+   노트북이 며칠 꺼져 있었다면 `Enable workflow` 로 잠깐 켜서 수동 실행으로
+   메꾸고, 다시 끄면 된다.
+
+   > 워크플로 파일의 `schedule:` 을 주석 처리하는 방법도 있지만 권하지 않는다.
+   > 나중에 브랜치를 병합하다가 조용히 되살아날 수 있다. 웹에서 끈 상태는
+   > 저장소 설정에 남으므로 코드가 어떻게 바뀌든 유지된다.
 2. **헬스봇 프로세스는 노트북에 하나만** 띄운다. 두 개 띄우면 같은 토큰으로
    둘이 폴링해서 텔레그램이 `409 Conflict` 를 던진다.
 3. **마키마의 cron 잡은 헬스봇과 시간이 겹치지 않게** 짰다.
