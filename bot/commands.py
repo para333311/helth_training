@@ -24,6 +24,7 @@ HELP = """혼자보는 운동 봇
 /mission 오늘의 미션 다시 보기
 /random  지금 할 수 있는 30초 운동
 /weight  체중 기록 (예: /weight 62.4)
+/condition 오늘 컨디션 기록 (예: /condition 3, 1~5)
 /myphotos 내가 보낸 사진 수 / 전부 삭제
 /help    이 목록
 
@@ -131,6 +132,7 @@ class CommandHandler:
             "/mission": self._mission,
             "/random": self._random,
             "/weight": self._weight,
+            "/condition": self._condition,
             "/myphotos": self._myphotos,
         }.get(command)
 
@@ -233,6 +235,19 @@ class CommandHandler:
         ]
         self._reply(uid, "\n".join(lines))
 
+    def _condition(self, uid: int, args: str) -> None:
+        try:
+            value = int(args.strip())
+            if not 1 <= value <= 5:
+                raise ValueError
+        except ValueError:
+            self._reply(uid, "1~5 사이 숫자로 보내주세요.\n예: /condition 3")
+            return
+
+        today = datetime.now(self.cfg.tz).date()
+        self.store.record_condition(uid, today, value)
+        self._reply(uid, f"기록했습니다: 오늘 컨디션 {value}/5\n\n내일 아침 미션에 반영됩니다.")
+
     # --- 사진 제출 -----------------------------------------------------------
 
     def _on_photo(self, uid: int, msg: dict) -> None:
@@ -295,6 +310,7 @@ class CommandHandler:
             {"command": "mission", "description": "오늘의 미션"},
             {"command": "random", "description": "30초 운동 추천"},
             {"command": "weight", "description": "체중 기록"},
+            {"command": "condition", "description": "오늘 컨디션 기록 (1~5)"},
             {"command": "myphotos", "description": "내가 보낸 사진 관리"},
             {"command": "help", "description": "명령어 목록"},
         ]

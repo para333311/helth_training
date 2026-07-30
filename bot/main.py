@@ -1,20 +1,30 @@
 """엔트리포인트.
 
-    python -m bot                 상시 실행 (발행 + 명령 수신)
-    python -m bot --once photo    특정 잡을 즉시 1회 발행 (테스트용)
-    python -m bot --list          잡 이름 목록
-    python -m bot --chatid        비공개 채널의 숫자 chat ID 찾기
-    python -m bot --check         설정과 채널 연결만 점검하고 종료
+    python -m bot                    상시 실행 (발행 + 명령 수신)
+    python -m bot --once photo       특정 잡을 즉시 1회 발행 (테스트용)
+    python -m bot --list             잡 이름 목록
+    python -m bot --chatid           비공개 채널의 숫자 chat ID 찾기
+    python -m bot --check            설정과 채널 연결만 점검하고 종료
+
+코치(마키마) 연동 — secretary1/openclaw 가 이 셋을 호출한다:
+
+    python -m bot --brief [--json]           내 데이터 요약 (OWNER_USER_ID 필요)
+    python -m bot --say "본문" --by 마키마     채널에 코치 명의로 발행
+    python -m bot --record condition=3       컨디션 기록 (1~5)
+    python -m bot --record weight=62.4       체중 기록
+    python -m bot --record done=green        오운완 기록 (green|yellow|red)
 """
 
 from __future__ import annotations
 
 import argparse
+import json as jsonlib
 import logging
 import sys
 import time
 from datetime import datetime
 
+from .brief import build_brief, render_text
 from .commands import CommandHandler
 from .config import load_config
 from .content import Content
@@ -128,6 +138,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--check", action="store_true", help="설정 점검만")
     parser.add_argument("--addfeed", metavar="URL", help="유튜브 채널 등록 (URL 또는 @핸들)")
     parser.add_argument("--feeds", action="store_true", help="등록된 유튜브 채널 목록")
+    parser.add_argument("--brief", action="store_true", help="코치용 데이터 요약 (OWNER_USER_ID 필요)")
+    parser.add_argument("--json", action="store_true", help="--brief 출력을 JSON 으로")
+    parser.add_argument("--say", metavar="TEXT", help="채널에 코치 명의로 발행")
+    parser.add_argument("--notify", metavar="TEXT",
+                        help="OWNER_USER_ID 에게 직접 DM. 채널은 답장이 불가능하므로 "
+                             "답을 받아야 하는 질문(컨디션 체크 등)은 이걸 쓴다")
+    parser.add_argument("--by", metavar="NAME", default="마키마", help="--say 서명 (기본: 마키마)")
+    parser.add_argument("--record", metavar="KEY=VALUE",
+                        help="condition=1~5 | weight=62.4 | done=green|yellow|red")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -173,6 +192,52 @@ def main(argv: list[str] | None = None) -> int:
             print(name)
         return 0
 
+    # --brief / --record 는 로컬 DB 만 읽고 쓴다. 네트워크 호출(get_me, getChat) 앞에
+    # 처리해서, 노트북이 오프라인이거나 토큰이 아직 없어도 코치가 데이터를 읽을 수 있게 한다.
+    if args.brief:
+        try:
+            brief = build_brief(cfg, store, content, feeds, datetime.now(cfg.tz).date())
+        except ValueError as exc:
+            log.error(str(exc))
+            return 1
+        print(jsonlib.dumps(brief.to_dict(), ensure_ascii=False) if args.json else render_text(brief))
+        return 0
+
+    if args.record:
+        if not cfg.owner_id:
+            log.error("OWNER_USER_ID 가 없습니다. --record 는 누구 기록인지 알아야 합니다.")
+            return 1
+        key, _, val = args.record.partition("=")
+        today = datetime.now(cfg.tz).date()
+
+        if key == "condition":
+            try:
+                value = int(val)
+                assert 1 <= value <= 5
+            except (ValueError, AssertionError):
+                log.error("condition 은 1~5 사이 정수여야 합니다: %r", val)
+                return 1
+            store.record_condition(cfg.owner_id, today, value)
+            print(f"기록: condition={value}")
+        elif key == "weight":
+            try:
+                value = float(val)
+            except ValueError:
+                log.error("weight 는 숫자여야 합니다: %r", val)
+                return 1
+            store.record_weight(cfg.owner_id, today, value)
+            print(f"기록: weight={value}")
+        elif key == "done":
+            if val not in {"green", "yellow", "red"}:
+                log.error("done 은 green|yellow|red 중 하나여야 합니다: %r", val)
+                return 1
+            store.record_done(cfg.owner_id, today, tier=val, kind="done")
+            print(f"기록: done={val}")
+        else:
+            log.error("모르는 키입니다: %r (condition|weight|done)", key)
+            return 1
+        return 0
+
     try:
         me = tg.get_me()
     except TelegramError as exc:
@@ -200,6 +265,37 @@ def main(argv: list[str] | None = None) -> int:
             log.error("채널에 접근할 수 없습니다: %s", exc)
             log.error("TELEGRAM_CHANNEL_ID=%r · 봇이 채널 관리자인지 확인하세요.", cfg.channel_id)
             return 1
+
+    if args.say:
+        text = f"{args.say}\n\n— {args.by}"
+        try:
+            msg = tg.send_message(cfg.channel_id, text)
+        except TelegramError as exc:
+            log.error("발행 실패: %s", exc)
+            return 1
+        chat = msg.get("chat", {})
+        log.info(
+            "발행함 [코치·%s] → %s (%s, id=%s) msg=%s %s",
+            args.by, chat.get("title") or chat.get("username") or chat.get("first_name", "?"),
+            chat.get("type", "?"), chat.get("id", "?"), msg.get("message_id", "?"),
+            args.say.split("\n")[0][:40],
+        )
+        return 0
+
+    if args.notify:
+        if not cfg.owner_id:
+            log.error("OWNER_USER_ID 가 없습니다. --notify 는 누구에게 보낼지 알아야 합니다.")
+            return 1
+        try:
+            msg = tg.send_message(cfg.owner_id, args.notify)
+        except TelegramError as exc:
+            log.error(
+                "DM 발송 실패: %s (본인이 봇에게 먼저 /start 를 보낸 적이 있어야 합니다)", exc
+            )
+            return 1
+        log.info("발행함 [DM] → owner id=%s msg=%s %s",
+                 cfg.owner_id, msg.get("message_id", "?"), args.notify.split("\n")[0][:40])
+        return 0
 
     if args.check:
         log.info(

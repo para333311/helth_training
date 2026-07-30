@@ -59,6 +59,14 @@ CREATE TABLE IF NOT EXISTS poll_results (
     data    TEXT NOT NULL
 );
 
+-- 코치(마키마)가 물어서 받은 컨디션 자기평가. 1~5.
+CREATE TABLE IF NOT EXISTS conditions (
+    user_id INTEGER NOT NULL,
+    day     TEXT NOT NULL,
+    value   INTEGER NOT NULL,
+    PRIMARY KEY (user_id, day)
+);
+
 -- 구독자가 봇 DM 으로 직접 보낸 오운완 사진.
 -- file_id 만 저장하고 재전송하므로 이미지 파일을 따로 보관하지 않는다.
 -- 본인이 /myphotos 로 언제든 전량 삭제(동의 철회)할 수 있어야 한다.
@@ -95,6 +103,15 @@ class Store:
         with self._conn() as c:
             row = c.execute("SELECT last_run FROM job_runs WHERE job = ?", (job,)).fetchone()
         return datetime.fromisoformat(row["last_run"]) if row else None
+
+    def published_today(self, job_names: list[str], today: date) -> list[str]:
+        """오늘 날짜에 last_run 이 찍힌 잡 이름들. tz 는 호출부가 이미 반영한 datetime 을 넘긴다는 전제."""
+        done = []
+        for name in job_names:
+            when = self.last_run(name)
+            if when and when.date() == today:
+                done.append(name)
+        return done
 
     def mark_run(self, job: str, when: datetime) -> None:
         with self._conn() as c:
@@ -191,11 +208,57 @@ class Store:
         return {
             "streak": row["current_streak"] if row else 0,
             "best": row["best_streak"] if row else 0,
+            "last_done": date.fromisoformat(row["last_done"]) if row and row["last_done"] else None,
             "week": week,
             "total": total,
         }
 
+    def done_on(self, user_id: int, day: date) -> bool:
+        with self._conn() as c:
+            row = c.execute(
+                "SELECT 1 FROM done_log WHERE user_id = ? AND day = ? AND kind = 'done'",
+                (user_id, day.isoformat()),
+            ).fetchone()
+        return row is not None
+
+    # --- 컨디션 ---------------------------------------------------------------
+
+    def record_condition(self, user_id: int, day: date, value: int) -> None:
+        with self._conn() as c:
+            c.execute(
+                "INSERT OR REPLACE INTO conditions (user_id, day, value) VALUES (?, ?, ?)",
+                (user_id, day.isoformat(), value),
+            )
+
+    def condition_on(self, user_id: int, day: date) -> int | None:
+        with self._conn() as c:
+            row = c.execute(
+                "SELECT value FROM conditions WHERE user_id = ? AND day = ?",
+                (user_id, day.isoformat()),
+            ).fetchone()
+        return row["value"] if row else None
+
+    def recent_conditions(self, user_id: int, today: date, n_days: int) -> list[int | None]:
+        """오늘부터 거꾸로 n_days 일. 기록 없는 날은 None."""
+        return [self.condition_on(user_id, today - timedelta(days=i)) for i in range(n_days)]
+
     # --- 체중 ---------------------------------------------------------------
+
+    def last_weight(self, user_id: int) -> tuple[date, float] | None:
+        with self._conn() as c:
+            row = c.execute(
+                "SELECT day, kg FROM weights WHERE user_id = ? ORDER BY day DESC LIMIT 1",
+                (user_id,),
+            ).fetchone()
+        return (date.fromisoformat(row["day"]), row["kg"]) if row else None
+
+    def last_two_weights(self, user_id: int) -> list[tuple[date, float]]:
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT day, kg FROM weights WHERE user_id = ? ORDER BY day DESC LIMIT 2",
+                (user_id,),
+            ).fetchall()
+        return [(date.fromisoformat(r["day"]), r["kg"]) for r in rows]
 
     def record_weight(self, user_id: int, today: date, kg: float) -> tuple[float, float | None]:
         with self._conn() as c:
