@@ -38,6 +38,16 @@ CREATE TABLE IF NOT EXISTS job_runs (
     last_run TEXT NOT NULL
 );
 
+-- 컨디션 기록. 마키마(코치)가 저녁에 물어보고 답을 여기 적는다.
+-- 이 값이 있어야 "어제 2점이었는데 오늘도 했구나" 같은 말이 가능해진다.
+CREATE TABLE IF NOT EXISTS conditions (
+    user_id INTEGER NOT NULL,
+    day     TEXT NOT NULL,
+    score   INTEGER NOT NULL,          -- 1(최악) ~ 5(최상)
+    note    TEXT,
+    PRIMARY KEY (user_id, day)
+);
+
 CREATE TABLE IF NOT EXISTS seen_items (
     bucket TEXT NOT NULL,
     key    TEXT NOT NULL,
@@ -208,6 +218,112 @@ class Store:
             )
         baseline = first["kg"] if first else kg
         return kg, (baseline - kg) if first else None
+
+    # --- 컨디션 (마키마가 물어보고 기록) --------------------------------------
+
+    def record_condition(self, user_id: int, day: date, score: int,
+                         note: str | None = None) -> None:
+        score = max(1, min(5, int(score)))
+        with self._conn() as c:
+            c.execute(
+                "INSERT OR REPLACE INTO conditions (user_id, day, score, note) "
+                "VALUES (?, ?, ?, ?)",
+                (user_id, day.isoformat(), score, note),
+            )
+
+    def recent_conditions(self, user_id: int, days: int = 7,
+                          today: date | None = None) -> list[dict]:
+        today = today or date.today()
+        since = (today - timedelta(days=days - 1)).isoformat()
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT day, score, note FROM conditions "
+                "WHERE user_id = ? AND day >= ? ORDER BY day DESC",
+                (user_id, since),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # --- 마키마(코치)용 조회 ---------------------------------------------------
+
+    def recent_days(self, user_id: int, days: int = 7,
+                    today: date | None = None) -> list[dict]:
+        """최근 n일을 하루도 빠짐없이 채워서 돌려준다.
+
+        기록이 없는 날은 done=False 로 명시된다. 빠진 날을 LLM 이 추측하게 두면
+        "며칠 쉬었다"를 틀리게 말하므로, 여기서 확정해서 준다.
+        """
+        today = today or date.today()
+        start = today - timedelta(days=days - 1)
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT day, tier, kind FROM done_log WHERE user_id = ? AND day >= ?",
+                (user_id, start.isoformat()),
+            ).fetchall()
+        by_day = {r["day"]: dict(r) for r in rows}
+        out = []
+        for i in range(days):
+            d = start + timedelta(days=i)
+            row = by_day.get(d.isoformat())
+            out.append({
+                "day": d.isoformat(),
+                "done": bool(row and row["kind"] == "done"),
+                "tier": row["tier"] if row else None,
+            })
+        return out
+
+    def missed_in_a_row(self, user_id: int, today: date | None = None,
+                        since: date | None = None) -> int:
+        """오늘을 제외하고, 어제부터 거꾸로 며칠 연속 안 했는지.
+
+        since (보통 시즌 시작일) 이전으로는 세지 않는다. 이게 없으면 기록이 하나도
+        없는 첫날에 "60일 연속 쉬었다"가 나와서 코치가 엉뚱한 말을 하게 된다.
+        """
+        today = today or date.today()
+        with self._conn() as c:
+            rows = {
+                r["day"] for r in c.execute(
+                    "SELECT day FROM done_log WHERE user_id = ? AND kind = 'done'",
+                    (user_id,),
+                )
+            }
+        n = 0
+        d = today - timedelta(days=1)
+        while n < 60 and d.isoformat() not in rows:
+            if since and d < since:
+                break
+            n += 1
+            d -= timedelta(days=1)
+        return n
+
+    def weight_history(self, user_id: int, limit: int = 12) -> list[dict]:
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT day, kg FROM weights WHERE user_id = ? ORDER BY day DESC LIMIT ?",
+                (user_id, limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def weight_baseline(self, user_id: int) -> float | None:
+        with self._conn() as c:
+            row = c.execute(
+                "SELECT kg FROM weights WHERE user_id = ? ORDER BY day ASC LIMIT 1",
+                (user_id,),
+            ).fetchone()
+        return row["kg"] if row else None
+
+    def job_runs_today(self, today: date | None = None) -> list[str]:
+        """오늘 이미 발행된 잡 이름. 코치가 같은 말을 두 번 하지 않게 하는 데 쓴다."""
+        today = today or date.today()
+        with self._conn() as c:
+            rows = c.execute("SELECT job, last_run FROM job_runs").fetchall()
+        out = []
+        for r in rows:
+            try:
+                if datetime.fromisoformat(r["last_run"]).date() == today:
+                    out.append(r["job"])
+            except ValueError:
+                continue
+        return sorted(out)
 
     # --- 채널 집계 (주간 결산용) ---------------------------------------------
 
