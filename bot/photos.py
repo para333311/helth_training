@@ -26,11 +26,32 @@ IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 
 @dataclass
 class Photo:
-    """발행할 사진 한 장. ref 는 로컬 경로이거나 원격 URL."""
+    """발행할 사진 한 장. ref 는 로컬 경로, 원격 URL, 또는 텔레그램 file_id."""
 
     ref: Path | str
     credit: str | None = None
     key: str = ""
+
+    def load_bytes(self, tg=None) -> bytes | None:
+        """명언 합성을 위해 원본 픽셀을 가져온다. 실패하면 None (호출부가 원본 사진 그대로 발행).
+
+        ref 종류별 경로:
+          Path       — 로컬 파일 그대로 읽기
+          "http..."  — 스톡 API URL, requests 로 다운로드
+          그 외 str  — 텔레그램 file_id, Bot API 로 다운로드 (구독자 제출 사진)
+        """
+        try:
+            if isinstance(self.ref, Path):
+                return self.ref.read_bytes()
+            if isinstance(self.ref, str) and self.ref.startswith(("http://", "https://")):
+                resp = requests.get(self.ref, timeout=20)
+                resp.raise_for_status()
+                return resp.content
+            if isinstance(self.ref, str) and tg is not None:
+                return tg.download_file_bytes(self.ref)
+        except Exception as exc:
+            log.warning("사진 원본을 못 받았습니다: %s", exc)
+        return None
 
 
 class PhotoSource:

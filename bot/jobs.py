@@ -6,7 +6,7 @@ import logging
 import random
 from datetime import date, datetime
 
-from .cards import render_quote
+from .cards import render_photo_quote, render_quote
 from .content import WEEKDAY_THEME, Content, progress_bar
 from .photos import PhotoSource
 from .store import Store
@@ -158,6 +158,11 @@ class Publisher:
         return False
 
     def _photo_drop(self, now: datetime) -> bool:
+        """사진에 명언을 합성해 한 장으로 낸다. 캡션(출처 줄)은 붙이지 않는다.
+
+        합성이 안 되면(Pillow/폰트 없음, 다운로드 실패 등) 원본 사진 + 캡션으로
+        조용히 대체한다 — 이 시간대가 아예 비는 것보다는 낫다.
+        """
         rng = self._rng("photo", now)
         caption_card = self.content.pick(self.content.photo_captions, rng)
         caption = caption_card["text"] if caption_card else "오늘도 하나만."
@@ -166,10 +171,18 @@ class Publisher:
         if photo is None:
             return False
 
-        full = f"{caption}\n\n{photo.credit}" if photo.credit else caption
+        composited = None
+        raw = photo.load_bytes(self.tg)
+        if raw is not None:
+            composited = render_photo_quote(raw, caption, rng)
 
         try:
-            msg = self.tg.send_photo(self.cfg.channel_id, photo.ref, caption=full)
+            if composited is not None:
+                msg = self.tg.send_photo(self.cfg.channel_id, composited)
+            else:
+                # 합성 실패 폴백 — 원본 사진 그대로, 캡션은 텍스트로 얹는다
+                full = f"{caption}\n\n{photo.credit}" if photo.credit else caption
+                msg = self.tg.send_photo(self.cfg.channel_id, photo.ref, caption=full)
         except TelegramError as exc:
             log.error("사진 발행 실패: %s", exc)
             return False

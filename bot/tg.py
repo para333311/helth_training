@@ -169,3 +169,18 @@ class Telegram:
 
     def get_me(self) -> dict:
         return self.call("getMe")
+
+    # --- 파일 다운로드 --------------------------------------------------------
+
+    def download_file_bytes(self, file_id: str) -> bytes:
+        """구독자가 DM 으로 보낸 사진(file_id)의 실제 바이트를 받아온다.
+
+        사진 위에 명언을 합성하려면 원본 픽셀이 필요하다. 다운로드한 바이트는
+        합성 후 즉시 버려지며 디스크에 저장하지 않는다 (photos.py 의 저장 정책과 동일).
+        """
+        info = self.call("getFile", file_id=file_id)
+        path = info["file_path"]
+        url = f"https://api.telegram.org/file/bot{self._token}/{path}"
+        resp = self._session.get(url, timeout=self._timeout)
+        resp.raise_for_status()
+        return resp.content
