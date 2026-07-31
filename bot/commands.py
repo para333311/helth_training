@@ -85,6 +85,8 @@ class CommandHandler:
     def _dispatch(self, update: dict) -> None:
         if "message" in update:
             self._on_message(update["message"])
+        elif "callback_query" in update:
+            self._on_callback(update["callback_query"])
         elif "poll" in update:
             poll = update["poll"]
             self.store.record_poll(poll["id"], datetime.now(self.cfg.tz).date(), poll)
@@ -96,6 +98,40 @@ class CommandHandler:
             self.store.record_reaction_count(
                 item["message_id"], datetime.now(self.cfg.tz).date(), counts
             )
+
+    # --- 채널 인라인 버튼 ------------------------------------------------------
+
+    def _on_callback(self, cq: dict) -> None:
+        """밤 체크인 인라인 버튼 클릭.
+
+        리액션(message_reaction_count)과 달리 콜백은 누른 사람의 user_id 가
+        그대로 오기 때문에, DM 을 따로 열지 않아도 채널에서 바로 개인 스트릭이
+        기록된다.
+        """
+        data = cq.get("data", "")
+        user = cq.get("from", {})
+        user_id = user.get("id")
+        toast = ""
+
+        if user_id and data in ("checkin:done", "checkin:skip"):
+            self.store.ensure_user(user_id, user.get("first_name", ""))
+            today = datetime.now(self.cfg.tz).date()
+
+            if data == "checkin:done":
+                result = self.store.record_done(user_id, today)
+                if result["already"]:
+                    toast = "이미 기록돼 있어요."
+                else:
+                    stats = self.store.stats(user_id, today)
+                    toast = f"💪 기록됨 · 연속 {stats['streak']}일"
+            else:
+                self.store.record_done(user_id, today, tier="none", kind="skip")
+                toast = "오늘은 패스로 기록했어요. 연속 기록은 유지됩니다."
+
+        try:
+            self.tg.call("answerCallbackQuery", callback_query_id=cq["id"], text=toast or None)
+        except TelegramError as exc:
+            log.warning("콜백 응답 실패: %s", exc)
 
     # --- 메시지 -------------------------------------------------------------
 

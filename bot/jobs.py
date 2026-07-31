@@ -231,9 +231,14 @@ class Publisher:
             log.error("퀴즈 발행 실패: %s", exc)
 
     def night_checkin(self, now: datetime) -> None:
-        """밤 인증 회수. 3일에 한 번은 투표, 나머지는 리액션.
+        """밤 인증 회수. 3일에 한 번은 투표, 나머지는 인라인 버튼.
 
         solo_mode 에서는 투표를 쓰지 않는다 — 혼자 하는 익명 투표는 의미가 없다.
+
+        버튼은 텔레그램 "리액션"이 아니라 진짜 인라인 키보드다. 리액션은 봇에게
+        익명 총계로만 오지만, 인라인 버튼은 콜백에 누른 사람의 user_id 가 그대로
+        온다 — 그래서 채널에서 바로 눌러도 개인 스트릭이 정확히 기록된다
+        (commands.py 의 콜백 핸들러 참고).
         """
         d = self._d_index(now)
 
@@ -256,7 +261,7 @@ class Publisher:
             except TelegramError as exc:
                 log.error("투표 발행 실패: %s", exc)
 
-        lines = ["🌙 오운완 체크", "", "오늘 미션, 하셨나요?", "", "💪 했다", "😮‍💨 오늘은 못 했다"]
+        lines = ["🌙 오운완 체크", "", "오늘 미션, 하셨나요?", "", "아래 버튼 하나만 눌러주세요."]
 
         if not self.cfg.solo_mode and self.member_count() >= MIN_MEMBERS_FOR_STATS:
             week = self.store.week_summary(self._today(now))["reactions"].get("💪", 0)
@@ -268,11 +273,14 @@ class Publisher:
             if stats["streak"]:
                 lines += ["", f"현재 연속 {stats['streak']}일 · 이번 주 {stats['week']}/7일"]
 
-        lines += ["", "둘 중 하나 눌러주세요. 그거면 됩니다."]
-        if self.cfg.bot_username_hint:
-            lines += ["", f"📊 기록하기 → @{self.cfg.bot_username_hint}"]
+        keyboard = {
+            "inline_keyboard": [[
+                {"text": "💪 했다", "callback_data": "checkin:done"},
+                {"text": "😮‍💨 오늘은 못 했다", "callback_data": "checkin:skip"},
+            ]]
+        }
 
-        msg = self._send("\n".join(lines))
+        msg = self._send("\n".join(lines), reply_markup=keyboard)
         if msg:
             self.store.mark_seen("checkin_msg", str(msg.get("message_id")))
 
