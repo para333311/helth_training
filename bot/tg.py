@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from io import BytesIO
@@ -39,8 +40,16 @@ class Telegram:
         return API.format(token=self._token, method=method)
 
     def call(self, method: str, files: dict | None = None, **params: Any) -> Any:
-        """재시도 포함 API 호출. 429 는 retry_after 를 존중한다."""
-        payload = {k: v for k, v in params.items() if v is not None}
+        """재시도 포함 API 호출. 429 는 retry_after 를 존중한다.
+
+        dict/list 값(reply_markup, options 등)은 폼 데이터로 못 보내므로 자동으로
+        JSON 문자열로 바꾼다 — 호출부에서 매번 json.dumps 할 필요가 없다.
+        """
+        payload = {
+            k: (json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v)
+            for k, v in params.items()
+            if v is not None
+        }
         last_error: Exception | None = None
 
         for attempt in range(4):
