@@ -70,13 +70,14 @@ Render 쪽이 실제로 발행하는 걸 로그로 확인한 뒤에 끄는 걸 �
 |---|---|
 | Name | `helth-bot` (원하는 이름) |
 | Runtime | Python 3 |
-| Build Command | `pip install -r requirements.txt && apt-get install -y fonts-nanum \|\| true` |
+| Build Command | `pip install -r requirements.txt && mkdir -p .fonts && curl -sL -o .fonts/NanumGothic.ttf https://raw.githubusercontent.com/google/fonts/main/ofl/nanumgothic/NanumGothic-Regular.ttf` |
 | Start Command | `python -m bot` |
 | Instance Type | Free |
 
-> Build Command 의 `fonts-nanum` 설치는 명언 카드용 한글 폰트다. Render
-> 빌드 환경엔 `sudo` 가 없으므로 빼고 쓰고, 실패해도 빌드가 멈추지 않게
-> `\|\| true` 를 붙인다.
+> Render 빌드 환경엔 `sudo`/`apt-get` 권한이 없다 (`dpkg lock ... are you
+> root?` 로 실패한다). 그래서 패키지 설치 대신 한글 폰트 파일을 레포 안
+> `.fonts/`로 직접 내려받는다. `bot/cards.py` 가 이 경로를 우선 확인하도록
+> 되어 있다.
 
 ## 3. 환경변수 등록
 
@@ -165,6 +166,7 @@ TZ=Asia/Seoul
 | 증상 | 확인 |
 |---|---|
 | 서비스가 자꾸 슬립함 | UptimeRobot 모니터 간격이 15분보다 짧은지, URL 이 정확한지 확인 |
-| 명언 카드가 안 나옴 | Build Command 에 `fonts-nanum` 설치가 성공했는지 Logs 에서 확인 |
+| 명언 카드가 안 나옴 | Build Command 의 `curl` 로그가 `HTTP 200`인지, Build Command 를 통째로 정확히 붙여넣었는지 확인 |
+| 빌드 로그에 `dpkg lock ... are you root?` | `apt-get`을 쓰던 옛 Build Command다. 위 2번 표의 `curl` 버전으로 교체 |
 | 배포할 때마다 스트릭이 리셋됨 | 무료 플랜의 알려진 한계 (위 경고 참고). Disk 애드온 또는 07·08번 문서 방식 고려 |
 | DM 명령이 안 먹음 | Actions 워크플로가 아직 켜져 있어 두 프로세스가 충돌하는지 확인 → Actions 비활성화 |

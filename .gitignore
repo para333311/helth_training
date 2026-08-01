@@ -26,3 +26,6 @@ content/photos/*
 
 # os
 .DS_Store
+
+# Render 등에서 빌드 커맨드로 내려받는 한글 폰트 (docs/09-render-setup.md)
+/.fonts/

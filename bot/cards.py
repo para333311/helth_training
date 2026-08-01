@@ -19,6 +19,8 @@ from pathlib import Path
 
 log = logging.getLogger("cards")
 
+ROOT = Path(__file__).resolve().parent.parent
+
 SIZE = 1080
 MARGIN = 110
 
@@ -32,6 +34,10 @@ PALETTE = [
 ]
 
 FONT_CANDIDATES = [
+    # Render 등 apt(sudo) 를 쓸 수 없는 빌드 환경용. 빌드 커맨드가 여기로
+    # 직접 내려받아 둔다 (docs/09-render-setup.md 참고). 패키지 설치가
+    # 가능한 환경(Actions, VPS)에서는 이 파일이 없으므로 자연히 건너뛴다.
+    str(ROOT / ".fonts" / "NanumGothic.ttf"),
     "/usr/share/fonts/truetype/nanum/NanumSquareRoundB.ttf",
     "/usr/share/fonts/truetype/nanum/NanumSquareB.ttf",
     "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
