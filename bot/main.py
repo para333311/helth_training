@@ -18,9 +18,12 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
+import threading
 import time
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from .brief import build_brief, dump_json, format_brief
 from .commands import CommandHandler
@@ -124,6 +127,27 @@ def find_chat_id(tg: Telegram, rounds: int = 12) -> None:
         print(f"\n→ TELEGRAM_CHANNEL_ID 에 넣을 값:  {channels[0]}")
     else:
         print("\n채널(channel) 타입이 안 보입니다. 봇이 채널 관리자인지 확인하세요.")
+
+
+def _start_health_server(port: int) -> None:
+    """Render 같은 Web Service 플랫폼용 최소 HTTP 응답.
+
+    발행·명령 처리와는 무관하다. 무료 플랜은 인바운드 HTTP 트래픽이
+    일정 시간 없으면 슬립하므로, 외부 핑 서비스(UptimeRobot 등)가 이
+    포트를 주기적으로 두드려 봇 프로세스를 깨어있게 하는 용도다.
+    PORT 환경변수가 없는 노트북·VPS 실행에서는 이 서버가 켜지지 않는다.
+    """
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        def log_message(self, *_args) -> None:
+            pass  # 핑마다 로그 찍히면 도배된다
+
+    HTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 
 TIERS = {"green": "🟢", "yellow": "🟡", "red": "🔴"}
@@ -374,6 +398,11 @@ def _main(argv: list[str] | None = None) -> int:
 
     handler = CommandHandler(cfg, tg, store, content)
     handler.register_commands()
+
+    port = os.environ.get("PORT")
+    if port:
+        threading.Thread(target=_start_health_server, args=(int(port),), daemon=True).start()
+        log.info("헬스체크 서버 시작 (포트 %s) — Web Service 슬립 방지용", port)
 
     if args.serve:
         # 발행은 GitHub Actions 등 외부가 맡고, 이 프로세스는 수신만 한다.
