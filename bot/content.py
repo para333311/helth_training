@@ -29,6 +29,7 @@ class Content:
         self.quizzes = self._load("quizzes.json")
         self.photo_captions = self._load("photo_captions.json")
         self.quotes = self._load("quotes.json")
+        self.hyrox = self._load("hyrox.json")
 
     def _load(self, name: str) -> list:
         path = self._dir / name
@@ -67,6 +68,20 @@ class Content:
         if mission.get("note"):
             lines += ["", mission["note"]]
         lines += ["", FOOTER]
+        return "\n".join(lines)
+
+    def render_hyrox(self, wod: dict, d_index: int) -> str:
+        lines = [f"🏋️ 하이록스 WOD · D+{d_index}", "", f"{wod['name']} · {wod['style']}", ""]
+        for tier, mark in (("green", "🟢"), ("yellow", "🟡"), ("red", "🔴")):
+            stations = wod.get(tier) or []
+            if not stations:
+                continue
+            lines.append(mark)
+            lines += [f"{i}) {s}" for i, s in enumerate(stations, 1)]
+            lines.append("")
+        if wod.get("note"):
+            lines += [wod["note"], ""]
+        lines.append(FOOTER)
         return "\n".join(lines)
 
     def render_quick_fix(self, card: dict) -> str:
