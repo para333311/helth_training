@@ -61,7 +61,7 @@ jobs:
           UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           SEASON_START: ${{ vars.SEASON_START }}
-          PHOTO_INTERVAL_MINUTES: ${{ vars.PHOTO_INTERVAL_MINUTES || '60' }}
+          PHOTO_INTERVAL_MINUTES: ${{ vars.PHOTO_INTERVAL_MINUTES || '30' }}
           PHOTO_START_HOUR: ${{ vars.PHOTO_START_HOUR || '7' }}
           PHOTO_END_HOUR: ${{ vars.PHOTO_END_HOUR || '22' }}
           SOLO_MODE: ${{ vars.SOLO_MODE || 'true' }}
