@@ -70,17 +70,26 @@ class Content:
         lines += ["", FOOTER]
         return "\n".join(lines)
 
-    def render_hyrox(self, wod: dict, d_index: int) -> str:
-        lines = [f"🏋️ 하이록스 WOD · D+{d_index}", "", f"{wod['name']} · {wod['style']}", ""]
+    RUN_PACE = {"green": "조깅 페이스", "yellow": "테스트 페이스", "red": "레이스 페이스"}
+
+    def render_hyrox(self, stations: list[dict], d_index: int) -> str:
+        """1km 달리기와 근력 스테이션을 번갈아 배치한 헬스장용 하이록스 WOD.
+
+        러닝으로 시작해서 러닝-스테이션을 스테이션 개수만큼 반복한다
+        (실제 하이록스와 같은 순서: 러닝 → 스테이션 → 러닝 → 스테이션 …).
+        """
+        n = len(stations)
+        lines = [f"🏋️ 하이록스 WOD · D+{d_index}", "", f"러닝 {n}회 × 근력 스테이션 {n}개, 교차", ""]
         for tier, mark in (("green", "🟢"), ("yellow", "🟡"), ("red", "🔴")):
-            stations = wod.get(tier) or []
-            if not stations:
-                continue
             lines.append(mark)
-            lines += [f"{i}) {s}" for i, s in enumerate(stations, 1)]
+            step = 1
+            for station in stations:
+                lines.append(f"{step}) 🏃 1km 달리기 ({self.RUN_PACE[tier]})")
+                step += 1
+                lines.append(f"{step}) 🏋️ {station['name']} {station[tier]}")
+                step += 1
             lines.append("")
-        if wod.get("note"):
-            lines += [wod["note"], ""]
+        lines += ["러닝과 근력 스테이션을 교차하는 하이록스 기본 구조입니다. 러닝 횟수는 나중에 늘려갑니다.", ""]
         lines.append(FOOTER)
         return "\n".join(lines)
 

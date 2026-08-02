@@ -208,16 +208,27 @@ class Publisher:
         self._send(text)
 
     def hyrox_wod(self, now: datetime) -> None:
-        """매일 저녁 6시, 하이록스 스타일 WOD. 크로스핏 보드처럼 스테이션 + 난이도 3단으로 낸다."""
-        if not self.content.hyrox:
-            log.warning("하이록스 재고가 비어 있습니다")
+        """매일 저녁 6시, 헬스장용 하이록스 WOD.
+
+        1km 달리기와 근력 스테이션을 번갈아 배치한다 (러닝 → 스테이션 → 러닝 → …).
+        러닝 횟수는 HYROX_RUNS(기본 3)만큼, 스테이션은 재고를 다 쓸 때까지 안 겹치게 순환한다.
+        """
+        pool_size = len(self.content.hyrox)
+        if not pool_size:
+            log.warning("하이록스 스테이션 재고가 비어 있습니다")
             return
+        n = min(self.cfg.hyrox_runs, pool_size)
+
         rng = self._rng("hyrox", now)
-        unseen = set(self.store.unseen("hyrox", [w["name"] for w in self.content.hyrox]))
-        pool = [w for w in self.content.hyrox if w["name"] in unseen] or self.content.hyrox
-        wod = rng.choice(pool)
-        self._send(self.content.render_hyrox(wod, self._d_index(now)))
-        self.store.mark_seen("hyrox", wod["name"])
+        unseen = set(self.store.unseen("hyrox", [s["name"] for s in self.content.hyrox]))
+        pool = [s for s in self.content.hyrox if s["name"] in unseen] or self.content.hyrox
+        if len(pool) < n:
+            pool = self.content.hyrox
+        stations = rng.sample(pool, n)
+
+        self._send(self.content.render_hyrox(stations, self._d_index(now)))
+        for station in stations:
+            self.store.mark_seen("hyrox", station["name"])
 
     def quick_fix(self, now: datetime) -> None:
         rng = self._rng("quickfix", now)
