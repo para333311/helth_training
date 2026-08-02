@@ -56,6 +56,10 @@ class Config:
     unsplash_key: str
     pexels_key: str
 
+    # 하이록스 WOD (헬스장) — 1km 달리기와 근력 스테이션을 번갈아 배치.
+    # 러닝 횟수는 3회로 시작하고, 감당되면 늘려간다.
+    hyrox_runs: int
+
     # 시즌
     season_start: date
     season_days: int
@@ -113,13 +117,14 @@ def load_config(require_channel: bool = True) -> Config:
         token=token,
         channel_id=channel,
         tz=ZoneInfo(os.environ.get("TZ", "Asia/Seoul")),
-        photo_interval_minutes=max(5, _int("PHOTO_INTERVAL_MINUTES", 60)),
+        photo_interval_minutes=max(5, _int("PHOTO_INTERVAL_MINUTES", 30)),
         photo_start_hour=_int("PHOTO_START_HOUR", 7),
         photo_end_hour=_int("PHOTO_END_HOUR", 22),
         photo_source=os.environ.get("PHOTO_SOURCE", "local").strip().lower(),
         photo_query=os.environ.get("PHOTO_QUERY", "home workout,gym motivation,fitness").strip(),
         unsplash_key=os.environ.get("UNSPLASH_ACCESS_KEY", "").strip(),
         pexels_key=os.environ.get("PEXELS_API_KEY", "").strip(),
+        hyrox_runs=max(1, _int("HYROX_RUNS", 3)),
         season_start=season_start,
         season_days=_int("SEASON_DAYS", 84),
         season_name=os.environ.get("SEASON_NAME", "3kg 프로젝트").strip(),

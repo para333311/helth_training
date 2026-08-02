@@ -41,6 +41,19 @@ class Publisher:
         """같은 슬롯에서 재시도해도 같은 결과가 나오도록 시드를 고정."""
         return random.Random(f"{salt}:{now:%Y-%m-%d-%H}")
 
+    def _interval_slot(self, now: datetime) -> int:
+        """자극 드롭 간격(PHOTO_INTERVAL_MINUTES) 기준 오늘 몇 번째 슬롯인지.
+
+        interval=60 이면 시간과 같은 값이라 기존 동작과 동일하지만, 30분처럼
+        한 시간에 두 번 도는 간격에서는 슬롯이 매번 달라져 같은 시간 안에
+        같은 명언/사진/영상이 중복 발행되는 걸 막는다.
+        """
+        return (now.hour * 60 + now.minute) // self.cfg.photo_interval_minutes
+
+    def _interval_rng(self, salt: str, now: datetime) -> random.Random:
+        """같은 슬롯에서 재시도해도 같은 결과, 다음 슬롯에서는 다른 결과가 나오도록."""
+        return random.Random(f"{salt}:{now:%Y-%m-%d}-{self._interval_slot(now)}")
+
     def _today(self, now: datetime) -> date:
         return now.date()
 
@@ -96,7 +109,7 @@ class Publisher:
         앞의 것이 안 되면 뒤로 넘어가고, 전부 안 되면 텍스트로 대체한다.
         어떤 경우에도 그 시간대가 비지 않는다.
         """
-        order = now.hour % 3
+        order = self._interval_slot(now) % 3
 
         if order == 0 and self.feeds and self._video_drop(now):
             return
@@ -114,7 +127,7 @@ class Publisher:
         if not self.content.quotes:
             return False
 
-        rng = self._rng("quote", now)
+        rng = self._interval_rng("quote", now)
         # 30개를 다 돌기 전에 같은 명언이 다시 나오지 않게 순환시킨다
         unseen = set(self.store.unseen("quote", [q["text"] for q in self.content.quotes]))
         pool = [q for q in self.content.quotes if q["text"] in unseen] or self.content.quotes
@@ -135,7 +148,7 @@ class Publisher:
         return True
 
     def _video_drop(self, now: datetime) -> bool:
-        rng = self._rng("video", now)
+        rng = self._interval_rng("video", now)
         try:
             video = self.feeds.pick(rng, self.store)
         except Exception as exc:
@@ -145,7 +158,7 @@ class Publisher:
         if not video:
             return False
 
-        rng2 = self._rng("vcaption", now)
+        rng2 = self._interval_rng("vcaption", now)
         card = self.content.pick(self.content.photo_captions, rng2)
         hook = card["text"] if card else "남들은 오늘도 하고 있습니다."
 
@@ -163,7 +176,7 @@ class Publisher:
         합성이 안 되면(Pillow/폰트 없음, 다운로드 실패 등) 원본 사진 + 캡션으로
         조용히 대체한다 — 이 시간대가 아예 비는 것보다는 낫다.
         """
-        rng = self._rng("photo", now)
+        rng = self._interval_rng("photo", now)
         caption_card = self.content.pick(self.content.photo_captions, rng)
         caption = caption_card["text"] if caption_card else "오늘도 하나만."
 
@@ -195,7 +208,7 @@ class Publisher:
         return True
 
     def _text_drop(self, now: datetime) -> None:
-        rng = self._rng("photo", now)
+        rng = self._interval_rng("photo", now)
         card = self.content.pick(self.content.photo_captions, rng)
         self._send(f"{card['text'] if card else '오늘도 하나만.'}\n\n💪")
 
@@ -206,6 +219,29 @@ class Publisher:
             return
         text = self.content.render_mission(mission, self._today(now), self._d_index(now))
         self._send(text)
+
+    def hyrox_wod(self, now: datetime) -> None:
+        """매일 저녁 6시, 헬스장용 하이록스 WOD.
+
+        1km 달리기와 근력 스테이션을 번갈아 배치한다 (러닝 → 스테이션 → 러닝 → …).
+        러닝 횟수는 HYROX_RUNS(기본 3)만큼, 스테이션은 재고를 다 쓸 때까지 안 겹치게 순환한다.
+        """
+        pool_size = len(self.content.hyrox)
+        if not pool_size:
+            log.warning("하이록스 스테이션 재고가 비어 있습니다")
+            return
+        n = min(self.cfg.hyrox_runs, pool_size)
+
+        rng = self._rng("hyrox", now)
+        unseen = set(self.store.unseen("hyrox", [s["name"] for s in self.content.hyrox]))
+        pool = [s for s in self.content.hyrox if s["name"] in unseen] or self.content.hyrox
+        if len(pool) < n:
+            pool = self.content.hyrox
+        stations = rng.sample(pool, n)
+
+        self._send(self.content.render_hyrox(stations, self._d_index(now)))
+        for station in stations:
+            self.store.mark_seen("hyrox", station["name"])
 
     def quick_fix(self, now: datetime) -> None:
         rng = self._rng("quickfix", now)

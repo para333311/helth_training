@@ -66,6 +66,9 @@ def build_scheduler(cfg, pub: Publisher, store: Store) -> Scheduler:
     # 금요일 근육 상식 퀴즈
     sched.add(DailyJob(name="quiz", fn=pub.quiz, hour=18, minute=0, weekdays=(4,)))
 
+    # 매일 저녁 6시 하이록스 WOD (크로스핏 보드 스타일)
+    sched.add(DailyJob(name="hyrox", fn=pub.hyrox_wod, hour=18, minute=0))
+
     # 밤 체크인
     sched.add(DailyJob(name="checkin", fn=pub.night_checkin, hour=22, minute=0))
 
@@ -372,8 +375,8 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.check:
         log.info(
-            "미션 %d개 · 자극문구 %d개 · 퀴즈 %d개 · 내 사진 %d장 · 유튜브 채널 %d개",
-            len(content.missions), len(content.quick_fixes), len(content.quizzes),
+            "미션 %d개 · 하이록스 WOD %d개 · 자극문구 %d개 · 퀴즈 %d개 · 내 사진 %d장 · 유튜브 채널 %d개",
+            len(content.missions), len(content.hyrox), len(content.quick_fixes), len(content.quizzes),
             store.count_photos(), len(feeds.channels()),
         )
         if not feeds.channels() and not cfg.unsplash_key and not cfg.pexels_key \
