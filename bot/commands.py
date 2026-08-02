@@ -32,9 +32,7 @@ HELP = """혼자보는 운동 봇
 
 🟢만 해도 오운완입니다. 진심입니다."""
 
-PHOTO_THANKS = """📷 사진 받았습니다.
-
-📸 사진만 올리지 말고 지금 당장 일어나! 🏃"""
+PHOTO_THANKS = """📸 사진만 올리지 말고 지금 당장 일어나! 🏃"""
 
 WELCOME = """👋 혼자보는 운동
 
@@ -287,7 +285,6 @@ class CommandHandler:
         caption = (msg.get("caption") or "").strip() or None
 
         self.store.add_photo(file_id, uid, caption)
-        total = self.store.count_photos()
 
         # 사진을 보냈다는 건 운동을 했다는 뜻이므로 오운완도 같이 기록
         today = datetime.now(self.cfg.tz).date()
@@ -298,9 +295,7 @@ class CommandHandler:
             uid,
             f"{PHOTO_THANKS}\n\n"
             f"━━━━━━━━━━━\n\n"
-            f"💪 오운완도 같이 기록했습니다.\n"
-            f"현재 연속  {stats['streak']}일\n"
-            f"모인 사진  {total}장",
+            f"현재 연속  {stats['streak']}일",
         )
 
     def _myphotos(self, uid: int, args: str) -> None:
