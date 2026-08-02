@@ -176,12 +176,12 @@ def render_photo_quote(
     """사진 위에 명언을 그려 한 장으로 합성한다. 실패하면 None (호출부가 원본 사진으로 대체).
 
     - 사진은 정사각형(1080×1080)으로 커버 크롭한다.
-    - 하단에 어두운 그라데이션을 깔아 글자가 어떤 사진에도 묻히지 않게 한다.
-    - 글자는 두꺼운 그림자를 둘러 밝은 배경 사진 위에서도 읽힌다.
+    - 하단에 어두운 그라데이션을 깔아 글자가 어떤 사진에도 묻히지 않게 한다
+      (가독성은 이 스크림만으로 확보하고, 글자에 별도 그림자는 넣지 않는다).
     - 출처/워터마크 문구는 넣지 않는다.
     """
     try:
-        from PIL import Image, ImageDraw, ImageFilter, ImageFont
+        from PIL import Image, ImageDraw, ImageFont
     except ImportError:
         log.warning("Pillow 가 없어 사진 합성을 할 수 없습니다 (pip install Pillow)")
         return None
@@ -233,21 +233,6 @@ def render_photo_quote(
     black.putalpha(alpha)
     scrim.paste(black, (0, gradient_top), black)
     image = Image.alpha_composite(image.convert("RGBA"), scrim)
-
-    draw = ImageDraw.Draw(image, "RGBA")
-
-    # 텍스트 그림자용 별도 레이어 — 블러를 먹여 부드러운 그림자를 만든다
-    shadow_layer = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    shadow_draw = ImageDraw.Draw(shadow_layer)
-
-    y = block_top
-    for line in lines:
-        width = draw.textlength(line, font=font)
-        x = (SIZE - width) / 2
-        shadow_draw.text((x, y + 6), line, font=font, fill=(0, 0, 0, 220))
-        y += line_height
-    shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(8))
-    image = Image.alpha_composite(image, shadow_layer)
 
     draw = ImageDraw.Draw(image, "RGBA")
     y = block_top
