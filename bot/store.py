@@ -8,6 +8,8 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from .d1 import D1Connection
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     user_id        INTEGER PRIMARY KEY,
@@ -99,8 +101,16 @@ class SchemaMismatch(RuntimeError):
 
 
 class Store:
-    def __init__(self, path: Path):
-        path.parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, path: Path, d1: D1Connection | None = None):
+        """d1 을 주면 로컬 SQLite 파일 대신 Cloudflare D1(원격, 영구 저장)을 쓴다.
+
+        Render 무료 플랜처럼 재시작마다 디스크가 초기화되는 환경에서, 로컬
+        파일(path)에 의존하면 스트릭·제출 사진·순환 기록이 통째로 날아간다.
+        d1 이 있으면 그 문제를 피해서 기록이 재시작을 넘어 유지된다.
+        """
+        self._d1 = d1
+        if d1 is None:
+            path.parent.mkdir(parents=True, exist_ok=True)
         self._path = path
         with self._conn() as c:
             c.executescript(SCHEMA)
@@ -136,6 +146,9 @@ class Store:
 
     @contextmanager
     def _conn(self):
+        if self._d1 is not None:
+            yield self._d1
+            return
         conn = sqlite3.connect(self._path, timeout=10)
         conn.row_factory = sqlite3.Row
         try:

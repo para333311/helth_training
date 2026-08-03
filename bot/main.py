@@ -29,6 +29,7 @@ from .brief import build_brief, dump_json, format_brief
 from .commands import CommandHandler
 from .config import load_config
 from .content import Content
+from .d1 import D1Connection
 from .feeds import YoutubeFeeds
 from .jobs import Publisher
 from .photos import build_source
@@ -37,6 +38,15 @@ from .store import SchemaMismatch, Store
 from .tg import Telegram, TelegramError
 
 log = logging.getLogger("main")
+
+
+def build_store(cfg) -> Store:
+    """CF_ACCOUNT_ID/CF_D1_DATABASE_ID/CF_API_TOKEN 이 다 있으면 Cloudflare D1(원격,
+    영구 저장)을 쓰고, 없으면 기존처럼 로컬 SQLite 파일을 쓴다. docs/09-render-setup.md 참고."""
+    if cfg.cf_account_id and cfg.cf_d1_database_id and cfg.cf_api_token:
+        d1 = D1Connection(cfg.cf_account_id, cfg.cf_d1_database_id, cfg.cf_api_token)
+        return Store(cfg.db_path, d1=d1)
+    return Store(cfg.db_path)
 
 
 def build_scheduler(cfg, pub: Publisher, store: Store) -> Scheduler:
@@ -291,7 +301,7 @@ def _main(argv: list[str] | None = None) -> int:
     # 텔레그램에 붙기 전에 처리한다. 노트북이 오프라인이어도 데이터는 읽/쓰기 가능해야 한다.
 
     if args.record:
-        store = Store(cfg.db_path)
+        store = build_store(cfg)
         if not cfg.owner_id:
             print("OWNER_USER_ID 가 설정돼 있지 않아 누구 기록인지 알 수 없습니다.")
             print("  .env 에 OWNER_USER_ID=<내 텔레그램 user id> 를 넣으세요.")
@@ -299,7 +309,7 @@ def _main(argv: list[str] | None = None) -> int:
         return record_values(cfg, store, args.record)
 
     if args.brief:
-        store = Store(cfg.db_path)
+        store = build_store(cfg)
         content = Content(cfg.data_dir)
         b = build_brief(cfg, store, content, feeds)
         print(dump_json(b) if args.json else format_brief(b))
@@ -311,7 +321,7 @@ def _main(argv: list[str] | None = None) -> int:
         find_chat_id(tg)
         return 0
 
-    store = Store(cfg.db_path)
+    store = build_store(cfg)
     content = Content(cfg.data_dir)
     photos = build_source(cfg, store)
     pub = Publisher(cfg, tg, store, content, photos, feeds)
