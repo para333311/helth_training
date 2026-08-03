@@ -145,6 +145,9 @@ class CommandHandler:
 
         text = (msg.get("text") or "").strip()
         if not text.startswith("/"):
+            # "오운완" 이라고만 써도 /done 과 똑같이 기록한다 — 명령어를 몰라도 되게.
+            if "오운완" in text:
+                self._done(user_id, "")
             return
         command, _, args = text.partition(" ")
         command = command.split("@")[0].lower()
