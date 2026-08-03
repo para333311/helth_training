@@ -35,14 +35,53 @@ Render 무료 **Web Service**는 인바운드 HTTP 요청이 15분 이상 없으
 컨테이너가 재시작되면(코드 푸시, 플랫폼 점검, 크래시 등) 파일시스템이
 초기화된다. 이 봇은 스트릭·사진·컨디션 기록을 `data/helth.db`
 (SQLite 파일)에 저장하므로, **재시작 한 번에 그 기록이 전부 날아갈 수
-있다.**
+있다.** (증상: 제출한 사진이 순환 안 되고 계속 같은 것만 나오거나, 스트릭이
+갑자기 1일로 리셋되는 식으로 나타난다.)
 
-- 감수할 만하면(개인 습관 기록이라 크게 아쉽지 않다면) 그대로 진행해도
-  된다 — 04번 문서의 "리셋 데이" 철학대로, 기록이 끊겨도 채널 자체는
+세 가지 중 하나를 고른다:
+
+- **감수한다** — 개인 습관 기록이라 크게 아쉽지 않다면 그대로 진행해도
+  된다. 04번 문서의 "리셋 데이" 철학대로, 기록이 끊겨도 채널 자체는
   계속된다.
-- 기록을 지키고 싶으면 Render 유료 플랜(Starter, $7/월~)의 **Disk**
-  애드온을 추가하거나, 07·08번 문서의 방식(진짜 영구 디스크)을 쓰는 걸
-  권장한다.
+- **Render 유료 Disk** — 유료 플랜(Starter, $7/월~)의 **Disk** 애드온을
+  추가한다. 코드 변경 없이 바로 해결된다.
+- **Cloudflare D1 (무료, 아래 방법)** — Render 무료 플랜을 유지하면서
+  기록만 재시작에도 살아남는 원격 DB로 옮긴다. 07·08번 문서의 방식(진짜
+  영구 디스크가 있는 내 하드웨어)도 대안이다.
+
+### Cloudflare D1로 기록 지키기 (무료)
+
+이 봇은 `CF_ACCOUNT_ID` / `CF_D1_DATABASE_ID` / `CF_API_TOKEN` 이 셋 다
+설정돼 있으면 로컬 SQLite 대신 [Cloudflare D1](https://developers.cloudflare.com/d1/)
+을 자동으로 쓴다 (`bot/d1.py`, `bot/store.py` 의 `Store(d1=...)`). D1은 REST API로
+쓰는 원격 SQLite라 로컬 SQLite와 SQL이 거의 똑같이 호환되고, Render 컨테이너가
+재시작돼도 데이터가 그대로 남는다. 셋 중 하나라도 비어 있으면 자동으로 기존
+로컬 파일 방식으로 동작하므로, 라즈베리파이·Windows·로컬 개발 환경은 이 설정을
+그냥 무시하면 된다.
+
+1. Cloudflare 대시보드([dash.cloudflare.com](https://dash.cloudflare.com)) 로그인
+   (계정이 없으면 무료 가입)
+2. **Account ID** 복사 — 대시보드 아무 페이지나 오른쪽 사이드바 하단, 또는
+   **Workers & Pages** 개요 페이지에 표시된다
+3. D1 데이터베이스 준비 — **Workers & Pages → D1** 에서 **Create database**
+   (이름은 자유, 예: `helth-training-db`). 생성 후 상세 페이지 URL이나
+   목록에서 **Database ID** 를 복사한다
+4. API 토큰 발급 — **오른쪽 위 프로필 아이콘 → My Profile → API Tokens →
+   Create Token → Custom token** 으로 만들고, 권한은 **Account → D1 → Edit**
+   하나만 준다 (그 이상 줄 필요 없음)
+5. Render **Environment** 탭(또는 로컬 `.env`)에 세 값을 넣는다:
+   ```
+   CF_ACCOUNT_ID=<2번에서 복사한 값>
+   CF_D1_DATABASE_ID=<3번에서 복사한 값>
+   CF_API_TOKEN=<4번에서 발급한 토큰>
+   ```
+6. 재배포하면 `Store.__init__` 이 첫 실행 시 D1에 테이블을 자동으로 만든다
+   (`python -m bot --check` 로 정상 연결 확인 가능)
+
+> `content/photos/` 에 직접 넣는 로컬 이미지 파일은 D1과 무관하게 여전히
+> Render 재시작마다 사라진다 (파일이지 DB 행이 아니라서). Render에서는
+> DM으로 사진을 보내는 `/photos` 제출 방식(`submitted_photos` 테이블, D1로
+> 보호됨)을 쓰는 걸 권장한다.
 
 ---
 

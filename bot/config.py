@@ -77,6 +77,13 @@ class Config:
     photo_dir: Path = field(default_factory=lambda: ROOT / "content" / "photos")
     db_path: Path = field(default_factory=lambda: ROOT / "data" / "helth.db")
 
+    # Cloudflare D1 (선택). 셋 다 있으면 로컬 SQLite 대신 D1 을 쓴다.
+    # Render 무료 플랜처럼 재시작마다 디스크가 초기화되는 곳에서 기록을 지키기 위함.
+    # docs/09-render-setup.md 참고.
+    cf_account_id: str = ""
+    cf_d1_database_id: str = ""
+    cf_api_token: str = ""
+
     @property
     def bot_username_hint(self) -> str:
         return os.environ.get("TELEGRAM_BOT_USERNAME", "").lstrip("@")
@@ -131,4 +138,7 @@ def load_config(require_channel: bool = True) -> Config:
         goal_kg=float(os.environ.get("GOAL_KG", "3.0")),
         solo_mode=os.environ.get("SOLO_MODE", "true").strip().lower() in {"1", "true", "yes"},
         owner_id=_int("OWNER_USER_ID", 0),
+        cf_account_id=os.environ.get("CF_ACCOUNT_ID", "").strip(),
+        cf_d1_database_id=os.environ.get("CF_D1_DATABASE_ID", "").strip(),
+        cf_api_token=os.environ.get("CF_API_TOKEN", "").strip(),
     )
