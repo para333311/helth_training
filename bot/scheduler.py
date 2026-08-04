@@ -91,15 +91,20 @@ class Scheduler:
     def tick(self, now: datetime | None = None) -> None:
         now = now or datetime.now(self._tz)
         for job in self._jobs:
-            last = self._store.last_run(job.name)
-            if last is not None and last.tzinfo is None:
-                last = last.replace(tzinfo=self._tz)
             try:
+                last = self._store.last_run(job.name)
+                if last is not None and last.tzinfo is None:
+                    last = last.replace(tzinfo=self._tz)
                 if job.due(now, last):
                     log.info("실행: %s", job.name)
                     job.fn(now)
                     self._store.mark_run(job.name, now)
             except Exception:
                 log.exception("잡 실패: %s", job.name)
-                # 실패한 잡도 실행 표시를 남겨 매 틱마다 재시도하며 도배되는 걸 막는다
-                self._store.mark_run(job.name, now)
+                # 실패한 잡도 실행 표시를 남겨 매 틱마다 재시도하며 도배되는 걸 막는다.
+                # 이 fallback 자체가 실패해도(예: D1 순간 장애) 다음 잡으로 넘어가야 한다 —
+                # 여기서 또 예외가 나면 tick() 전체가 죽어서 나머지 잡이 통째로 스킵된다.
+                try:
+                    self._store.mark_run(job.name, now)
+                except Exception:
+                    log.exception("실행 표시 실패: %s", job.name)
