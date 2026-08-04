@@ -12,7 +12,20 @@ D1 REST API 는 호출마다 독립된 HTTP 요청이라 sqlite3 같은 진짜 �
 
 from __future__ import annotations
 
+import logging
+import time
+
 import requests
+
+log = logging.getLogger("d1")
+
+# (연결, 응답) 제한 시간. 예전에 20초 단일 타임아웃을 썼다가 Cloudflare 응답이
+# 느려진 순간 메인 루프가 오래 막혀 있었고(ReadTimeout 로그 확인됨), 그 여파로
+# 봇 전체가 응답 없는 상태로 몇 시간씩 굳어버린 적이 있다. 짧게 끊고 재시도하는
+# 편이 오래 막혀 있는 것보다 안전하다.
+TIMEOUT = (5, 10)
+RETRIES = 1
+RETRY_BACKOFF = 1.5
 
 
 class D1Error(RuntimeError):
@@ -44,11 +57,22 @@ class D1Connection:
         )
         self._headers = {"Authorization": f"Bearer {api_token}"}
 
+    def _post_with_retry(self, sql: str, params: tuple) -> requests.Response:
+        for attempt in range(1, RETRIES + 2):
+            try:
+                return requests.post(
+                    self._url, headers=self._headers,
+                    json={"sql": sql, "params": list(params)}, timeout=TIMEOUT,
+                )
+            except requests.exceptions.RequestException as exc:
+                if attempt > RETRIES:
+                    raise
+                log.warning("D1 요청 실패(%d/%d), %.1f초 후 재시도: %s",
+                            attempt, RETRIES, RETRY_BACKOFF * attempt, exc)
+                time.sleep(RETRY_BACKOFF * attempt)
+
     def execute(self, sql: str, params: tuple = ()) -> _Cursor:
-        resp = requests.post(
-            self._url, headers=self._headers,
-            json={"sql": sql, "params": list(params)}, timeout=20,
-        )
+        resp = self._post_with_retry(sql, params)
         resp.raise_for_status()
         data = resp.json()
         if not data.get("success"):
