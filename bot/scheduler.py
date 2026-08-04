@@ -20,7 +20,7 @@ log = logging.getLogger("sched")
 # 상시 실행할 때는 몇 초 안에 발견되므로 이 값이 거의 쓰이지 않지만,
 # GitHub Actions 처럼 30분 간격으로 --tick 을 도는 경우에는 예정 시각과
 # 실제 실행 사이에 그만큼 간격이 생긴다. 그 지연을 흡수할 만큼 넉넉해야
-# 07:30 미션 같은 정시 발행이 통째로 누락되지 않는다.
+# 06:30 미션 같은 정시 발행이 통째로 누락되지 않는다.
 GRACE = timedelta(minutes=int(os.environ.get("JOB_GRACE_MINUTES", "40")))
 
 
