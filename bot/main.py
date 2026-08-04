@@ -52,7 +52,7 @@ def build_store(cfg) -> Store:
 def build_scheduler(cfg, pub: Publisher, store: Store) -> Scheduler:
     sched = Scheduler(store, cfg.tz)
 
-    # 1시간 주기 자극 (사진 ↔ 유튜브 링크 교대) — 밤에는 쉰다 (기본 07~22시)
+    # 1시간 주기 자극 (사진 ↔ 유튜브 링크 교대) — 밤에는 쉰다 (기본 06~22시)
     sched.add(
         IntervalJob(
             name="photo",
@@ -64,7 +64,7 @@ def build_scheduler(cfg, pub: Publisher, store: Store) -> Scheduler:
     )
 
     # 아침 미션
-    sched.add(DailyJob(name="mission", fn=pub.morning_mission, hour=7, minute=30))
+    sched.add(DailyJob(name="mission", fn=pub.morning_mission, hour=6, minute=30))
 
     # 낮 자극 (평일) — 수/일은 270kcal 카드로 자동 전환
     sched.add(
@@ -423,7 +423,7 @@ def _main(argv: list[str] | None = None) -> int:
         log.info("수신 전용 모드 — 내장 스케줄러를 끕니다. 발행은 외부에서 지시하세요.")
     else:
         log.info(
-            "사진 %d분 주기 (%02d~%02d시), 미션 07:30, 체크인 22:00",
+            "사진 %d분 주기 (%02d~%02d시), 미션 06:30, 체크인 22:00",
             cfg.photo_interval_minutes, cfg.photo_start_hour, cfg.photo_end_hour,
         )
     log.info("시작합니다. Ctrl+C 로 종료.")
