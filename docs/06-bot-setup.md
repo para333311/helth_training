@@ -311,7 +311,7 @@ python tests/brief_smoke.py         # --brief flags 로직
 | `hyrox.json` | 12 | 하이록스 근력 스테이션 · 다 쓸 때까지 안 겹치게 순환 |
 | `quick_fixes.json` | 20 | 귀찮음 응급처치 |
 | `photo_captions.json` | 24 | 사진·영상에 붙는 한 줄 |
-| `quotes.json` | 54 | 명언 카드 |
+| `quotes.json` | 101 | 명언 카드 |
 | `kcal_cards.json` | 14 | 270kcal 카드 |
 | `quizzes.json` | 10 | 근육 상식 퀴즈 |
 
