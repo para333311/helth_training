@@ -101,6 +101,7 @@ python -m bot --once weekly    # 주간 결산
 | `TELEGRAM_CHANNEL_ID` | `-100...` 숫자 ID |
 | `OWNER_USER_ID` | 내 user_id (선택) |
 | `UNSPLASH_ACCESS_KEY` | 스톡 사진 키 (선택) |
+| `CF_ACCOUNT_ID` / `CF_D1_DATABASE_ID` / `CF_API_TOKEN` | Render와 같은 D1을 쓸 때만 (선택, 09번 문서) |
 
 `Variables` 탭에 추가 (선택):
 
@@ -118,8 +119,13 @@ python -m bot --once weekly    # 주간 결산
 > 발행(사진·미션·체크인·결산)만 필요하면 Actions 로 충분하다.
 
 > 예약 실행은 GitHub 이 혼잡할 때 몇 분에서 십여 분 늦게 뜬다.
-> 그래서 `JOB_GRACE_MINUTES=40` 으로 지연을 흡수한다. 06:30 미션이 06:45에 나갈 수는 있어도
+> 그래서 `JOB_GRACE_MINUTES=60` 으로 지연을 흡수한다. 06:30 미션이 06:45에 나갈 수는 있어도
 > 통째로 누락되지는 않는다.
+
+> 💡 **방법 B(상시 실행)를 쓰고 있어도 이 Actions는 꺼두지 않는 걸 권장한다.**
+> 상시 실행 쪽이 잠들거나 죽어도 이 30분 cron이 안전망으로 대신 발행해준다.
+> CF_ACCOUNT_ID/CF_D1_DATABASE_ID/CF_API_TOKEN을 양쪽에 똑같이 넣어 같은 D1을
+> 보게 하면 중복 발행 없이 서로 안전망이 된다 — 자세한 건 09번 문서 참고.
 
 ### 방법 B. 상시 실행 (전부 동작)
 

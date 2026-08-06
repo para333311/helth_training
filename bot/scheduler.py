@@ -21,7 +21,7 @@ log = logging.getLogger("sched")
 # GitHub Actions 처럼 30분 간격으로 --tick 을 도는 경우에는 예정 시각과
 # 실제 실행 사이에 그만큼 간격이 생긴다. 그 지연을 흡수할 만큼 넉넉해야
 # 06:30 미션 같은 정시 발행이 통째로 누락되지 않는다.
-GRACE = timedelta(minutes=int(os.environ.get("JOB_GRACE_MINUTES", "40")))
+GRACE = timedelta(minutes=int(os.environ.get("JOB_GRACE_MINUTES", "60")))
 
 
 @dataclass
@@ -89,22 +89,25 @@ class Scheduler:
         return False
 
     def tick(self, now: datetime | None = None) -> None:
+        """예정된 잡을 확인해서 실행한다.
+
+        실행 *전에* claim_run 으로 슬롯을 원자적으로 선점한다 (먼저 실행하고
+        나중에 표시하면, Render 상시 실행과 GitHub Actions --tick 이 겹쳐
+        들어올 때 둘 다 due 로 보고 둘 다 발행해버리는 경합이 생긴다).
+        선점에 실패하면(다른 트리거가 방금 가져감) 조용히 건너뛴다.
+        """
         now = now or datetime.now(self._tz)
         for job in self._jobs:
             try:
                 last = self._store.last_run(job.name)
                 if last is not None and last.tzinfo is None:
                     last = last.replace(tzinfo=self._tz)
-                if job.due(now, last):
-                    log.info("실행: %s", job.name)
-                    job.fn(now)
-                    self._store.mark_run(job.name, now)
+                if not job.due(now, last):
+                    continue
+                if not self._store.claim_run(job.name, now):
+                    log.info("선점 실패(다른 트리거가 이미 처리) — 건너뜀: %s", job.name)
+                    continue
+                log.info("실행: %s", job.name)
+                job.fn(now)
             except Exception:
                 log.exception("잡 실패: %s", job.name)
-                # 실패한 잡도 실행 표시를 남겨 매 틱마다 재시도하며 도배되는 걸 막는다.
-                # 이 fallback 자체가 실패해도(예: D1 순간 장애) 다음 잡으로 넘어가야 한다 —
-                # 여기서 또 예외가 나면 tick() 전체가 죽어서 나머지 잡이 통째로 스킵된다.
-                try:
-                    self._store.mark_run(job.name, now)
-                except Exception:
-                    log.exception("실행 표시 실패: %s", job.name)

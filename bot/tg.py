@@ -39,6 +39,12 @@ class Telegram:
     def _url(self, method: str) -> str:
         return API.format(token=self._token, method=method)
 
+    def _redact(self, text: str) -> str:
+        """봇 토큰은 URL 경로의 일부라, 네트워크 예외 메시지에 그대로 찍혀 나올 수 있다
+        (예: requests.ConnectionError 가 실패한 URL 전체를 포함하는 경우). 로그·예외
+        메시지로 나가기 전에 항상 이걸 거친다."""
+        return text.replace(self._token, "***") if self._token else text
+
     def call(self, method: str, files: dict | None = None, **params: Any) -> Any:
         """재시도 포함 API 호출. 429 는 retry_after 를 존중한다.
 
@@ -59,7 +65,7 @@ class Telegram:
                 )
                 body = resp.json()
             except Exception as exc:  # 네트워크 오류
-                last_error = exc
+                last_error = self._redact(str(exc))
                 time.sleep(2**attempt)
                 continue
 
@@ -190,6 +196,9 @@ class Telegram:
         info = self.call("getFile", file_id=file_id)
         path = info["file_path"]
         url = f"https://api.telegram.org/file/bot{self._token}/{path}"
-        resp = self._session.get(url, timeout=self._timeout)
-        resp.raise_for_status()
+        try:
+            resp = self._session.get(url, timeout=self._timeout)
+            resp.raise_for_status()
+        except Exception as exc:
+            raise TelegramError(f"getFile 다운로드 실패: {self._redact(str(exc))}") from None
         return resp.content
