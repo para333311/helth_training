@@ -85,15 +85,42 @@ Render 무료 **Web Service**는 인바운드 HTTP 요청이 15분 이상 없으
 
 ---
 
-## GitHub Actions 와의 관계
+## GitHub Actions 와의 관계 — 이제는 **같이 켜두는 걸 권장한다**
 
-Render 를 쓰기로 하면 **Actions 워크플로("채널 발행")는 꺼야 한다.**
-둘 다 발행하면 같은 시간에 미션이 두 번 올라간다.
+예전엔 "Render 쓰면 Actions는 꺼라"고 안내했다. 이제는 반대다 — **Actions를
+Render의 안전망으로 같이 켜두는 걸 권장한다.**
 
-레포 → Actions 탭 → 왼쪽 "채널 발행" → 우측 상단 **"..." → Disable workflow**
+이유: Render 무료 플랜은 자거나 크래시되면 그 안의 스케줄러(메모리에서만
+도는 `while True` 루프)도 같이 멈춘다. 그 순간이 06:30 미션이든 22:00
+체크인이든 그냥 통째로 빠진다 — Health Check Path로 재시작은 되지만,
+재시작되는 그 잠깐의 공백 자체는 막을 수 없다. `.github/workflows/publish.yml`
+은 Render와 완전히 무관하게 30분마다 GitHub 자체 러너에서 새로 실행되므로,
+Render가 죽어 있어도 예정된 잡을 대신 발행해준다.
 
-Render 쪽이 실제로 발행하는 걸 로그로 확인한 뒤에 끄는 걸 권장한다
-(발행 주체가 0개가 되는 공백을 피하려면).
+**둘 다 켜둬도 중복 발행되지 않는다** — Render와 Actions가 CF_ACCOUNT_ID /
+CF_D1_DATABASE_ID / CF_API_TOKEN 으로 **같은 D1**을 보게 설정하면(아래
+"GitHub Actions Secrets 설정" 참고), 어느 쪽이 먼저 실행하든 D1에 "내가
+방금 처리했다"를 원자적으로 남기고(`bot/store.py`의 `claim_run`), 뒤따라온
+쪽은 조용히 스킵한다.
+
+### GitHub Actions Secrets 설정
+
+레포 → Settings → Secrets and variables → Actions → **New repository secret**
+으로 아래 세 개를 Render에 넣은 값과 **똑같이** 추가한다:
+
+| 이름 | 값 |
+|---|---|
+| `CF_ACCOUNT_ID` | Render 에 넣은 것과 동일 |
+| `CF_D1_DATABASE_ID` | Render 에 넣은 것과 동일 |
+| `CF_API_TOKEN` | Render 에 넣은 것과 동일 |
+
+### 꺼져 있다면 다시 켜기
+
+레포 → Actions 탭 → 왼쪽 "채널 발행" → 워크플로가 회색으로 비활성 표시면
+우측 상단 **"..." → Enable workflow**.
+
+DM 명령(`/done`, `/streak`, 사진 제출)은 여전히 Render(또는 07·08번 문서의
+상시 실행)가 떠 있어야만 받을 수 있다 — Actions 는 발행만 대신해준다.
 
 ---
 
@@ -126,15 +153,21 @@ Render 쪽이 실제로 발행하는 걸 로그로 확인한 뒤에 끄는 걸 �
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_CHANNEL_ID=@helth_training
 TELEGRAM_BOT_USERNAME=helth_training_bot
-OWNER_USER_ID=1423971696
+OWNER_USER_ID=<내 텔레그램 user_id>
 SOLO_MODE=true
 SEASON_START=2026-07-30
 PHOTO_INTERVAL_MINUTES=30
-PHOTO_START_HOUR=7
+PHOTO_START_HOUR=6
 PHOTO_END_HOUR=22
 UNSPLASH_ACCESS_KEY=...
 PEXELS_API_KEY=...
 TZ=Asia/Seoul
+
+# 기록을 재시작에도 지키고, GitHub Actions와 발행을 안전하게 나눠 갖고 싶으면
+# (아래 "Cloudflare D1로 기록 지키기" 참고, 셋 다 있어야 적용된다)
+CF_ACCOUNT_ID=...
+CF_D1_DATABASE_ID=...
+CF_API_TOKEN=...
 ```
 
 `PORT` 는 Render 가 자동으로 넣어주므로 따로 등록할 필요 없다.

@@ -60,12 +60,22 @@ jobs:
           OWNER_USER_ID: ${{ secrets.OWNER_USER_ID }}
           UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          # Render(상시 실행)와 같은 D1을 보게 하는 세 값. 이게 있어야 두 트리거가
+          # "이미 발행했는지"를 공유해서 중복 발행이 안 생긴다 (scheduler.py 의
+          # claim_run 참고). 비어 있으면 이 실행 안에서만 쓰고 버려지는 로컬
+          # SQLite(아래 상태 복원/저장 캐시)로 조용히 폴백한다.
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           SEASON_START: ${{ vars.SEASON_START }}
           PHOTO_INTERVAL_MINUTES: ${{ vars.PHOTO_INTERVAL_MINUTES || '30' }}
-          PHOTO_START_HOUR: ${{ vars.PHOTO_START_HOUR || '7' }}
+          PHOTO_START_HOUR: ${{ vars.PHOTO_START_HOUR || '6' }}
           PHOTO_END_HOUR: ${{ vars.PHOTO_END_HOUR || '22' }}
           SOLO_MODE: ${{ vars.SOLO_MODE || 'true' }}
-          JOB_GRACE_MINUTES: "40"
+          # GitHub 예약 실행은 혼잡하면 지연될 수 있고, Render 상시 실행과
+          # 30분 간격으로 번갈아 도는 걸 감안해 06:30/22:00 같은 정시 발행이
+          # 안전하게 걸리도록 40→60분으로 여유를 늘렸다.
+          JOB_GRACE_MINUTES: "60"
           TZ: Asia/Seoul
         run: |
           case "${{ inputs.job }}" in

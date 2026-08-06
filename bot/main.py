@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -142,17 +143,41 @@ def find_chat_id(tg: Telegram, rounds: int = 12) -> None:
         print("\n채널(channel) 타입이 안 보입니다. 봇이 채널 관리자인지 확인하세요.")
 
 
-def _start_health_server(port: int) -> None:
+def _start_health_server(port: int, cfg, sched: Scheduler) -> None:
     """Render 같은 Web Service 플랫폼용 최소 HTTP 응답.
 
     발행·명령 처리와는 무관하다. 무료 플랜은 인바운드 HTTP 트래픽이
     일정 시간 없으면 슬립하므로, 외부 핑 서비스(UptimeRobot 등)가 이
     포트를 주기적으로 두드려 봇 프로세스를 깨어있게 하는 용도다.
     PORT 환경변수가 없는 노트북·VPS 실행에서는 이 서버가 켜지지 않는다.
+
+    /healthz — 살아있는지만. 외부 의존성(D1·텔레그램) 확인 안 함 — Render 의
+               "60초 연속 실패하면 재시작"이 이 값만 보고 판단하므로, 여기서
+               D1/텔레그램이 잠깐 느려진 걸로 오탐 재시작이 걸리면 안 된다.
+    /readyz  — 설정이 채워져 있는지 참/거짓만(값은 절대 노출하지 않음).
+    그 외 경로 — 기존 동작 그대로 200 (UptimeRobot 등이 "/" 를 찌르던 걸 유지).
     """
 
     class Handler(BaseHTTPRequestHandler):
+        def _json(self, status: int, body: dict) -> None:
+            payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(payload)
+
         def do_GET(self) -> None:
+            path = self.path.split("?")[0]
+            if path == "/readyz":
+                self._json(200, {
+                    "telegram_token_set": bool(cfg.token),
+                    "channel_id_set": bool(cfg.channel_id),
+                    "d1_configured": bool(
+                        cfg.cf_account_id and cfg.cf_d1_database_id and cfg.cf_api_token
+                    ),
+                    "job_count": len(sched.job_names()),
+                })
+                return
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b"ok")
@@ -414,7 +439,7 @@ def _main(argv: list[str] | None = None) -> int:
 
     port = os.environ.get("PORT")
     if port:
-        threading.Thread(target=_start_health_server, args=(int(port),), daemon=True).start()
+        threading.Thread(target=_start_health_server, args=(int(port), cfg, sched), daemon=True).start()
         log.info("헬스체크 서버 시작 (포트 %s) — Web Service 슬립 방지용", port)
 
     if args.serve:
