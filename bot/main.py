@@ -64,6 +64,10 @@ def build_scheduler(cfg, pub: Publisher, store: Store) -> Scheduler:
         )
     )
 
+    # 유튜브 루틴 자극 (하루 2회)
+    sched.add(DailyJob(name="youtube_nudge_07", fn=pub.youtube_nudge_morning, hour=7, minute=0))
+    sched.add(DailyJob(name="youtube_nudge_19", fn=pub.youtube_nudge_evening, hour=19, minute=0))
+
     # 아침 미션
     sched.add(DailyJob(name="mission", fn=pub.morning_mission, hour=6, minute=30))
 

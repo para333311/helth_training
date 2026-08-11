@@ -286,12 +286,18 @@ class Store:
 
     def stats(self, user_id: int, today: date) -> dict:
         monday = today - timedelta(days=today.weekday())
+        month_start = today.replace(day=1)
         with self._conn() as c:
             row = c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
             week = c.execute(
                 "SELECT COUNT(*) n FROM done_log "
                 "WHERE user_id = ? AND kind = 'done' AND day >= ?",
                 (user_id, monday.isoformat()),
+            ).fetchone()["n"]
+            month = c.execute(
+                "SELECT COUNT(*) n FROM done_log "
+                "WHERE user_id = ? AND kind = 'done' AND day >= ?",
+                (user_id, month_start.isoformat()),
             ).fetchone()["n"]
             total = c.execute(
                 "SELECT COUNT(*) n FROM done_log WHERE user_id = ? AND kind = 'done'",
@@ -302,8 +308,35 @@ class Store:
             "best": row["best_streak"] if row else 0,
             "last_done": date.fromisoformat(row["last_done"]) if row and row["last_done"] else None,
             "week": week,
+            "week_days": today.weekday() + 1,   # 이번 주 경과일(월=1 ~ 일=7) — 진행바 분모
+            "month": month,
+            "month_days": today.day,            # 이번 달 경과일 — 진행바 분모
             "total": total,
         }
+
+    def missing_recent_days(self, user_id: int, today: date, limit: int = 3) -> list[date]:
+        """이번 주(월요일 ~ 어제) 중 기록이 아예 없는 날. 최근 날짜부터.
+
+        체크인 버튼을 놓친 날을 나중에라도 채울 수 있게 캐치업 버튼을 만드는 데 쓴다.
+        오늘은 포함하지 않는다 — 오늘은 지금 누른 버튼이 이미 채운다.
+        지난주 이전으로는 넘어가지 않는다 — 너무 오래된 날짜까지 계속 들이밀면
+        도움이 아니라 부담이 된다.
+        """
+        monday = today - timedelta(days=today.weekday())
+        with self._conn() as c:
+            rows = {
+                r["day"] for r in c.execute(
+                    "SELECT day FROM done_log WHERE user_id = ? AND day >= ? AND day < ?",
+                    (user_id, monday.isoformat(), today.isoformat()),
+                )
+            }
+        out: list[date] = []
+        d = today - timedelta(days=1)
+        while d >= monday:
+            if d.isoformat() not in rows:
+                out.append(d)
+            d -= timedelta(days=1)
+        return out[:limit]
 
     def record_weight(self, user_id: int, today: date, kg: float) -> tuple[float, float | None]:
         with self._conn() as c:

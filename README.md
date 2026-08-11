@@ -72,6 +72,40 @@ python -m bot                         # 상시 실행
 
 ---
 
+## Render 배포 (Webhook + 스케줄러 동시 운영)
+
+### 필수 환경변수
+
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHANNEL_ID` (기존 스케줄 발행 대상)
+- `BASE_URL=https://helth-training.onrender.com`
+- `WEBHOOK_SECRET` (길고 랜덤한 문자열)
+- `PORT` (Render가 자동 주입)
+
+### 선택 환경변수
+
+- `TELEGRAM_WEBHOOK_SECRET_TOKEN` (Telegram header 검증용)
+- `ADMIN_CHAT_ID` (처리 실패 관리자 알림)
+- `DIAG_TOKEN` (`/diag` 보호)
+- `ENABLE_SCHEDULER=true` (기본값 true)
+
+### Start Command (권장)
+
+```bash
+uvicorn bot.webapp:app --host 0.0.0.0 --port $PORT --workers 1
+```
+
+> `--workers 1` 권장: 멀티 워커는 스케줄러 중복 발행 위험이 있다.
+
+### 배포 후 확인
+
+- `https://helth-training.onrender.com` → 200
+- `https://helth-training.onrender.com/health` → 200
+- `https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/getWebhookInfo` 확인
+- UptimeRobot 모니터는 `/health` 로 바꾸는 것을 권장
+
+---
+
 ## 보안
 
 **봇 토큰은 레포에 커밋하지 않는다.**
