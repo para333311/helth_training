@@ -212,6 +212,26 @@ class Publisher:
         card = self.content.pick(self.content.photo_captions, rng)
         self._send(f"{card['text'] if card else '오늘도 하나만.'}\n\n💪")
 
+    def youtube_nudge(self, now: datetime, slot: str) -> None:
+        """유튜브 루틴 자극 메시지. 하루 2회(07시, 19시)."""
+        if not self.content.youtube_nudges:
+            log.warning("유튜브 자극 문구 재고가 비어 있습니다")
+            return
+
+        unseen = self.store.unseen("youtube_nudge", self.content.youtube_nudges)
+        rng = self._rng(f"youtube_nudge:{slot}", now)
+        text = rng.choice(unseen or self.content.youtube_nudges)
+        prefix = "🎬 07:00 유튜브 루틴" if slot == "morning" else "🎬 19:00 유튜브 루틴"
+        msg = self._send(f"{prefix}\n\n{text}")
+        if msg:
+            self.store.mark_seen("youtube_nudge", text)
+
+    def youtube_nudge_morning(self, now: datetime) -> None:
+        self.youtube_nudge(now, "morning")
+
+    def youtube_nudge_evening(self, now: datetime) -> None:
+        self.youtube_nudge(now, "evening")
+
     def morning_mission(self, now: datetime) -> None:
         mission = self.content.mission_for(self._today(now), self._week_rotation(now))
         if not mission:
@@ -309,10 +329,11 @@ class Publisher:
             if stats["streak"]:
                 lines += ["", f"현재 연속 {stats['streak']}일 · 이번 주 {stats['week']}/7일"]
 
+        today_iso = self._today(now).isoformat()
         keyboard = {
             "inline_keyboard": [[
-                {"text": "💪 했다", "callback_data": "checkin:done"},
-                {"text": "😮‍💨 오늘은 못 했다", "callback_data": "checkin:skip"},
+                {"text": "💪 했다", "callback_data": f"checkin:done:{today_iso}"},
+                {"text": "😮‍💨 오늘은 못 했다", "callback_data": f"checkin:skip:{today_iso}"},
             ]]
         }
 

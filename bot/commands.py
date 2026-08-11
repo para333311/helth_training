@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import random
-from datetime import datetime
+from datetime import date, datetime
 
 from .content import Content, progress_bar
 from .store import Store
@@ -68,13 +68,22 @@ class CommandHandler:
         for update in self.tg.get_updates(self._offset, timeout=timeout):
             self._offset = update["update_id"] + 1
             try:
-                self._dispatch(update)
+                self.handle_update(update)
             except Exception:
                 log.exception("업데이트 처리 실패")
+
+    def handle_update(self, update: dict) -> None:
+        self._dispatch(update)
 
     def _dispatch(self, update: dict) -> None:
         if "message" in update:
             self._on_message(update["message"])
+        elif "edited_message" in update:
+            self._on_message(update["edited_message"])
+        elif "channel_post" in update:
+            self._on_message(update["channel_post"])
+        elif "edited_channel_post" in update:
+            self._on_message(update["edited_channel_post"])
         elif "callback_query" in update:
             self._on_callback(update["callback_query"])
         elif "poll" in update:
@@ -97,31 +106,121 @@ class CommandHandler:
         리액션(message_reaction_count)과 달리 콜백은 누른 사람의 user_id 가
         그대로 오기 때문에, DM 을 따로 열지 않아도 채널에서 바로 개인 스트릭이
         기록된다.
+
+        callback_data 형식은 "checkin:done:2026-07-31" 처럼 날짜를 포함한다.
+        오늘자 버튼뿐 아니라, 이번 주 놓친 날을 나중에 채우는 캐치업 버튼도
+        같은 형식이라 이 핸들러 하나로 처리된다.
         """
         data = cq.get("data", "")
         user = cq.get("from", {})
         user_id = user.get("id")
         toast = ""
+        show_alert = False
 
-        if user_id and data in ("checkin:done", "checkin:skip"):
-            self.store.ensure_user(user_id, user.get("first_name", ""))
+        parts = data.split(":")
+        if user_id and len(parts) >= 2 and parts[0] == "checkin" and parts[1] in ("done", "skip"):
+            action = parts[1]
             today = datetime.now(self.cfg.tz).date()
+            target = today
+            if len(parts) >= 3:
+                try:
+                    candidate = date.fromisoformat(parts[2])
+                    # 미래 날짜나 너무 오래된 캐치업 버튼(예전 메시지 재클릭 등)은 무시하고
+                    # 오늘로 취급한다 — 옛 스트릭을 마음대로 조작하지 못하게 막는다.
+                    if candidate <= today and (today - candidate).days <= 14:
+                        target = candidate
+                except ValueError:
+                    pass
 
-            if data == "checkin:done":
-                result = self.store.record_done(user_id, today)
+            self.store.ensure_user(user_id, user.get("first_name", ""))
+
+            if action == "done":
+                result = self.store.record_done(user_id, target)
+                toast = self._checkin_toast(user_id, today, target, result["already"])
+                show_alert = True
+            else:
+                result = self.store.record_done(user_id, target, tier="none", kind="skip")
                 if result["already"]:
                     toast = "이미 기록돼 있어요."
                 else:
-                    stats = self.store.stats(user_id, today)
-                    toast = f"💪 기록됨 · 연속 {stats['streak']}일"
-            else:
-                self.store.record_done(user_id, today, tier="none", kind="skip")
-                toast = "오늘은 패스로 기록했어요. 연속 기록은 유지됩니다."
+                    toast = "패스로 기록했어요. 연속 기록은 유지됩니다."
+
+            # 오늘 처음 누른 것에 한해, 이번 주 놓친 날이 있으면 같이 채우자고 제안한다.
+            # 캐치업 버튼(과거 날짜)을 누른 경우나 중복 클릭에는 다시 띄우지 않는다.
+            if target == today and not result["already"]:
+                self._offer_catchup(cq, user, user_id, today)
 
         try:
-            self.tg.call("answerCallbackQuery", callback_query_id=cq["id"], text=toast or None)
+            self.tg.call(
+                "answerCallbackQuery",
+                callback_query_id=cq["id"],
+                text=toast or None,
+                show_alert=show_alert,
+            )
         except TelegramError as exc:
             log.warning("콜백 응답 실패: %s", exc)
+
+    def _checkin_toast(self, user_id: int, today: date, target: date, already: bool) -> str:
+        """'했다' 클릭에 대한 응답. 주간/월간 진행률을 진행바로 보여준다.
+
+        show_alert=True 로 띄우는 팝업이라 토스트보다 오래 떠 있고 글도 더
+        들어간다 — 눌렀는데 아무것도 안 보이던 문제를 여기서 같이 해결한다.
+        """
+        when = "오늘" if target == today else f"{target.month}/{target.day}"
+        stats = self.store.stats(user_id, today)
+        if already:
+            return f"{when} 기록은 이미 있어요.\n\n연속 {stats['streak']}일 · 최고 {stats['best']}일"
+
+        week_bar = progress_bar(stats["week"], 7, width=7)
+        month_bar = progress_bar(stats["month"], stats["month_days"], width=10)
+        return (
+            f"💪 {when} 기록 완료\n\n"
+            f"연속     {stats['streak']}일 · 최고 {stats['best']}일\n"
+            f"이번 주 {week_bar} {stats['week']}/7\n"
+            f"이번 달 {month_bar} {stats['month']}/{stats['month_days']}"
+        )
+
+    def _offer_catchup(self, cq: dict, user: dict, user_id: int, today: date) -> None:
+        """이번 주 안 누른 날이 있으면, 지금 누른 김에 같이 채우도록 버튼을 보낸다.
+
+        채널 메시지 하나는 모두에게 공유되어 있어서 "누구의 놓친 날"인지
+        메시지 자체에 담을 수 없다 — 그래서 버튼을 누른 시점에, 채널에 답장으로
+        개인화된 캐치업 메시지를 새로 보낸다.
+        """
+        missing = self.store.missing_recent_days(user_id, today, limit=3)
+        if not missing:
+            return
+
+        chat = cq.get("message", {}).get("chat", {})
+        chat_id = chat.get("id")
+        message_id = cq.get("message", {}).get("message_id")
+        if not chat_id:
+            return
+
+        days_kr = "월화수목금토일"
+        labels = [f"{d.month}/{d.day}({days_kr[d.weekday()]})" for d in missing]
+        name = user.get("first_name") or ""
+        text = (
+            (f"{name}님, " if name else "")
+            + f"이번 주 {', '.join(labels)}엔 기록이 없으시네요.\n"
+            "놓친 날도 지금 눌러서 채울 수 있어요."
+        )
+        keyboard = {
+            "inline_keyboard": [
+                [{"text": f"💪 {label} 했다", "callback_data": f"checkin:done:{d.isoformat()}"}]
+                for d, label in zip(missing, labels)
+            ]
+        }
+        try:
+            self.tg.call(
+                "sendMessage",
+                chat_id=chat_id,
+                text=text,
+                reply_to_message_id=message_id,
+                reply_markup=keyboard,
+            )
+        except TelegramError as exc:
+            log.warning("캐치업 안내 실패: %s", exc)
 
     # --- 메시지 -------------------------------------------------------------
 
@@ -193,12 +292,15 @@ class CommandHandler:
         d = self.cfg.day_index(today)
 
         head = "이미 오늘 기록돼 있습니다." if result["already"] else "💪 오운완 기록됨"
+        week_bar = progress_bar(stats["week"], 7, width=7)
+        month_bar = progress_bar(stats["month"], stats["month_days"], width=10)
         self._reply(
             uid,
             f"{head}\n\n"
             f"현재 연속  {stats['streak']}일\n"
             f"최고 기록  {stats['best']}일\n"
-            f"이번 주    {stats['week']} / 7일\n\n"
+            f"이번 주    {week_bar} {stats['week']}/7일\n"
+            f"이번 달    {month_bar} {stats['month']}/{stats['month_days']}일\n\n"
             f"{self.cfg.season_name}  D+{d} / {self.cfg.season_days}",
         )
 
@@ -207,12 +309,15 @@ class CommandHandler:
         stats = self.store.stats(uid, today)
         d = self.cfg.day_index(today)
         bar = progress_bar(d, self.cfg.season_days)
+        week_bar = progress_bar(stats["week"], 7, width=7)
+        month_bar = progress_bar(stats["month"], stats["month_days"], width=10)
         self._reply(
             uid,
             f"📊 내 기록\n\n"
             f"현재 연속  {stats['streak']}일\n"
             f"최고 기록  {stats['best']}일\n"
-            f"이번 주    {stats['week']} / 7일\n"
+            f"이번 주    {week_bar} {stats['week']}/7일\n"
+            f"이번 달    {month_bar} {stats['month']}/{stats['month_days']}일\n"
             f"누적       {stats['total']}일\n\n"
             f"{self.cfg.season_name}\n{bar}  D+{d} / {self.cfg.season_days}",
         )

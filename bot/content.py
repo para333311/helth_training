@@ -30,6 +30,7 @@ class Content:
         self.photo_captions = self._load("photo_captions.json")
         self.quotes = self._load("quotes.json")
         self.hyrox = self._load("hyrox.json")
+        self.youtube_nudges = self._load("youtube_nudges.json")
 
     def _load(self, name: str) -> list:
         path = self._dir / name

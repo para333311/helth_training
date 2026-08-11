@@ -18,7 +18,9 @@ API = "https://api.telegram.org/bot{token}/{method}"
 # 채널 리액션 집계와 투표 결과를 받으려면 명시적으로 요청해야 한다.
 ALLOWED_UPDATES = [
     "message",
+    "edited_message",
     "channel_post",
+    "edited_channel_post",
     "callback_query",
     "poll",
     "message_reaction",
@@ -184,6 +186,24 @@ class Telegram:
 
     def get_me(self) -> dict:
         return self.call("getMe")
+
+    def set_webhook(
+        self,
+        url: str,
+        *,
+        allowed_updates: list[str] | None = None,
+        secret_token: str | None = None,
+    ) -> Any:
+        return self.call(
+            "setWebhook",
+            url=url,
+            allowed_updates=allowed_updates,
+            secret_token=secret_token,
+            drop_pending_updates=False,
+        )
+
+    def get_webhook_info(self) -> dict:
+        return self.call("getWebhookInfo")
 
     # --- 파일 다운로드 --------------------------------------------------------
 
