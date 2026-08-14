@@ -213,7 +213,8 @@ class Publisher:
         self._send(f"{card['text'] if card else '오늘도 하나만.'}\n\n💪")
 
     def youtube_nudge(self, now: datetime, slot: str) -> None:
-        """유튜브 루틴 자극 메시지. 하루 2회(07시, 19시)."""
+        """유튜브 루틴 자극 메시지. 하루 4회(07/11/15:30/19:30). 접두사는 실제
+        발행 시각을 그대로 찍는다 — 슬롯이 늘어나도 시각을 하드코딩하지 않는다."""
         if not self.content.youtube_nudges:
             log.warning("유튜브 자극 문구 재고가 비어 있습니다")
             return
@@ -221,13 +222,18 @@ class Publisher:
         unseen = self.store.unseen("youtube_nudge", self.content.youtube_nudges)
         rng = self._rng(f"youtube_nudge:{slot}", now)
         text = rng.choice(unseen or self.content.youtube_nudges)
-        prefix = "🎬 07:00 유튜브 루틴" if slot == "morning" else "🎬 19:00 유튜브 루틴"
-        msg = self._send(f"{prefix}\n\n{text}")
+        msg = self._send(f"🎬 {now:%H:%M} 유튜브 루틴\n\n{text}")
         if msg:
             self.store.mark_seen("youtube_nudge", text)
 
     def youtube_nudge_morning(self, now: datetime) -> None:
         self.youtube_nudge(now, "morning")
+
+    def youtube_nudge_late_morning(self, now: datetime) -> None:
+        self.youtube_nudge(now, "late_morning")
+
+    def youtube_nudge_afternoon(self, now: datetime) -> None:
+        self.youtube_nudge(now, "afternoon")
 
     def youtube_nudge_evening(self, now: datetime) -> None:
         self.youtube_nudge(now, "evening")
