@@ -64,9 +64,12 @@ def build_scheduler(cfg, pub: Publisher, store: Store) -> Scheduler:
         )
     )
 
-    # 유튜브 루틴 자극 (하루 2회)
+    # 유튜브 루틴 자극 (하루 4회) — 12:30(quickfix)/15:00(quickfix_weekend)/18:00(hyrox·quiz)/
+    # 20:00(격주 reset_day)/21:00(weekly)/22:00(checkin) 과 안 겹치게 시각을 골랐다.
     sched.add(DailyJob(name="youtube_nudge_07", fn=pub.youtube_nudge_morning, hour=7, minute=0))
-    sched.add(DailyJob(name="youtube_nudge_19", fn=pub.youtube_nudge_evening, hour=19, minute=0))
+    sched.add(DailyJob(name="youtube_nudge_11", fn=pub.youtube_nudge_late_morning, hour=11, minute=0))
+    sched.add(DailyJob(name="youtube_nudge_15", fn=pub.youtube_nudge_afternoon, hour=15, minute=30))
+    sched.add(DailyJob(name="youtube_nudge_19", fn=pub.youtube_nudge_evening, hour=19, minute=30))
 
     # 아침 미션
     sched.add(DailyJob(name="mission", fn=pub.morning_mission, hour=6, minute=30))
