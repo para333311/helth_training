@@ -85,11 +85,14 @@ def test_health_and_root_200():
 
     r1 = client.get("/")
     r2 = client.get("/health")
+    r3 = client.get("/healthz")
 
     assert r1.status_code == 200
     assert r2.status_code == 200
+    assert r3.status_code == 200
     assert r1.json()["ok"] is True
     assert r2.json()["status"] == "healthy"
+    assert r3.json()["status"] == "healthy"
 
 
 def test_channel_post_photo_calls_ack():
