@@ -373,6 +373,10 @@ def create_app(runtime: BotRuntime | None = None) -> FastAPI:
     async def health() -> dict[str, Any]:
         return {"ok": True, "status": "healthy"}
 
+    @app.get("/healthz")
+    async def healthz() -> dict[str, Any]:
+        return {"ok": True, "status": "healthy"}
+
     @app.get("/diag")
     async def diag(
         token: str = Query(default=""),
