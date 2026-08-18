@@ -22,9 +22,8 @@ from .config import load_config
 from .content import Content
 from .feeds import YoutubeFeeds
 from .jobs import Publisher
-from .main import build_scheduler
+from .main import build_scheduler, build_store
 from .photos import build_source
-from .store import Store
 from .tg import Telegram, TelegramError
 
 log = logging.getLogger("web")
@@ -80,7 +79,7 @@ class BotRuntime:
     def __init__(self) -> None:
         self.cfg = load_config(require_channel=False)
         self.tg = Telegram(self.cfg.token)
-        self.store = Store(self.cfg.db_path)
+        self.store = build_store(self.cfg)
         self.content = Content(self.cfg.data_dir)
         self.feeds = YoutubeFeeds(self.cfg.data_dir / "youtube_channels.json")
         self.photos = build_source(self.cfg, self.store)
