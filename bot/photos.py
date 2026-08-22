@@ -73,9 +73,21 @@ class SubmittedPhotos(PhotoSource):
 
     def __init__(self, store):
         self._store = store
+        # 마지막으로 성공한 조회 결과. D1(원격 DB)이 잠깐 느리거나 끊겨서 조회가
+        # 실패하면 ChainedPhotos 가 그 예외를 삼키고 다음 소스(스톡 사진)로
+        # 넘어가버린다 — 내가 보낸 사진이 있는데도 남의 스톡 사진이 그 시간대를
+        # 차지하는 것이다. 캐시가 있으면 그 한 번의 실패로 슬롯을 뺏기지 않는다.
+        self._cache: list[dict] = []
 
     def fetch(self, query: str, rng: random.Random, store=None) -> Photo | None:
-        rows = self._store.submitted_photos()
+        try:
+            rows = self._store.submitted_photos()
+            if rows:
+                self._cache = rows
+        except Exception as exc:
+            log.warning("제출 사진 조회 실패 — 직전 목록으로 대체합니다: %s", exc)
+            rows = self._cache
+
         if not rows:
             return None
         # used 오름차순으로 정렬돼 있으므로, 가장 적게 나간 것들 중에서 고른다
