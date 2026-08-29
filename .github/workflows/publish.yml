@@ -69,8 +69,8 @@ jobs:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           SEASON_START: ${{ vars.SEASON_START }}
           PHOTO_INTERVAL_MINUTES: ${{ vars.PHOTO_INTERVAL_MINUTES || '60' }}
-          PHOTO_START_HOUR: ${{ vars.PHOTO_START_HOUR || '6' }}
-          PHOTO_END_HOUR: ${{ vars.PHOTO_END_HOUR || '22' }}
+          PHOTO_START_HOUR: ${{ vars.PHOTO_START_HOUR || '16' }}
+          PHOTO_END_HOUR: ${{ vars.PHOTO_END_HOUR || '21' }}
           SOLO_MODE: ${{ vars.SOLO_MODE || 'true' }}
           # GitHub 예약 실행은 혼잡하면 지연될 수 있고, Render 상시 실행과
           # 30분 간격으로 번갈아 도는 걸 감안해 06:30/22:00 같은 정시 발행이

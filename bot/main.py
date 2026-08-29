@@ -53,7 +53,7 @@ def build_store(cfg) -> Store:
 def build_scheduler(cfg, pub: Publisher, store: Store) -> Scheduler:
     sched = Scheduler(store, cfg.tz)
 
-    # 1시간 주기 자극 (사진 ↔ 유튜브 링크 교대) — 밤에는 쉰다 (기본 06~22시)
+    # 1시간 주기 자극 (사진 ↔ 유튜브 링크 교대) — 오후에만 (기본 16~21시)
     sched.add(
         IntervalJob(
             name="photo",
