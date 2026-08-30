@@ -72,10 +72,10 @@ jobs:
           PHOTO_START_HOUR: ${{ vars.PHOTO_START_HOUR || '16' }}
           PHOTO_END_HOUR: ${{ vars.PHOTO_END_HOUR || '21' }}
           SOLO_MODE: ${{ vars.SOLO_MODE || 'true' }}
-          # GitHub 예약 실행은 혼잡하면 지연될 수 있고, Render 상시 실행과
-          # 30분 간격으로 번갈아 도는 걸 감안해 06:30/22:00 같은 정시 발행이
-          # 안전하게 걸리도록 40→60분으로 여유를 늘렸다.
-          JOB_GRACE_MINUTES: "60"
+          # GitHub 예약 실행이 혼잡 시 5~12시간까지 밀리는 사례가 반복 확인되어
+          # (8/27, 8/28 다수 잡 결측), 그 공백 사이에 걸린 정시 잡이 통째로
+          # 스킵되지 않도록 60→240분으로 여유를 늘렸다.
+          JOB_GRACE_MINUTES: "240"
           TZ: Asia/Seoul
         run: |
           case "${{ inputs.job }}" in
