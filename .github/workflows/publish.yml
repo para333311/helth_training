@@ -73,9 +73,10 @@ jobs:
           PHOTO_END_HOUR: ${{ vars.PHOTO_END_HOUR || '21' }}
           SOLO_MODE: ${{ vars.SOLO_MODE || 'true' }}
           # GitHub 예약 실행이 혼잡 시 5~12시간까지 밀리는 사례가 반복 확인되어
-          # (8/27, 8/28 다수 잡 결측), 그 공백 사이에 걸린 정시 잡이 통째로
-          # 스킵되지 않도록 60→240분으로 여유를 늘렸다.
-          JOB_GRACE_MINUTES: "240"
+          # (8/27, 8/28 다수 잡 결측; 240분으로 늘린 후에도 8/31 hyrox(18시)가
+          # 다시 결측 — 그날 18~22시 사이에 실행이 8시간 가까이 비었음),
+          # 그 공백을 흡수하도록 480분(8시간)으로 재확대.
+          JOB_GRACE_MINUTES: "480"
           TZ: Asia/Seoul
         run: |
           case "${{ inputs.job }}" in
