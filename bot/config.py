@@ -124,7 +124,12 @@ def load_config(require_channel: bool = True) -> Config:
         token=token,
         channel_id=channel,
         tz=ZoneInfo(os.environ.get("TZ", "Asia/Seoul")),
-        photo_interval_minutes=max(5, _int("PHOTO_INTERVAL_MINUTES", 60)),
+        # 하한 60분. Render 대시보드의 PHOTO_INTERVAL_MINUTES=30 이 코드
+        # 기본값(60)을 덮어써 자극이 30분마다 나가고 있었다 (2026-09-01 확인).
+        # 대시보드는 이 저장소에서 안 보이니 코드에서 바닥을 올린다 —
+        # 더 촘촘하게 되돌리고 싶으면 이 줄을 고치는 커밋으로 하라. 그래야
+        # 주기 변경이 git 역사에 남는다.
+        photo_interval_minutes=max(60, _int("PHOTO_INTERVAL_MINUTES", 60)),
         photo_start_hour=_int("PHOTO_START_HOUR", 16),
         photo_end_hour=_int("PHOTO_END_HOUR", 21),
         photo_source=os.environ.get("PHOTO_SOURCE", "local").strip().lower(),
