@@ -18,9 +18,9 @@ log = logging.getLogger("sched")
 # 예정 시각을 이만큼 넘겨서 발견된 잡은 실행하지 않는다.
 #
 # 상시 실행할 때는 몇 초 안에 발견되므로 이 값이 거의 쓰이지 않지만,
-# GitHub Actions 예약 실행은 혼잡하면 5~12시간까지도 밀리는 사례가 확인되어,
-# 그 공백 사이에 걸린 정시 발행이 통째로 누락되지 않도록 넉넉히 잡는다.
-GRACE = timedelta(minutes=int(os.environ.get("JOB_GRACE_MINUTES", "240")))
+# GitHub Actions 예약 실행은 혼잡하면 8시간 가까이도 밀리는 사례가 반복
+# 확인되어, 그 공백 사이에 걸린 정시 발행이 통째로 누락되지 않도록 넉넉히 잡는다.
+GRACE = timedelta(minutes=int(os.environ.get("JOB_GRACE_MINUTES", "480")))
 
 
 @dataclass
