@@ -15,10 +15,10 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: "즉시 발행할 잡 (chatid = 채널 ID 찾기, 비우면 스케줄 확인만)"
+        description: "즉시 발행할 잡 (chatid = 채널 ID 찾기, check = 설정 점검만·발행 안 함, 비우면 스케줄 확인만)"
         required: false
         type: choice
-        options: ["", chatid, photo, mission, quickfix, quiz, checkin, weekly, reset_day]
+        options: ["", chatid, check, photo, mission, quickfix, quiz, checkin, weekly, reset_day]
 
 concurrency:
   group: publish
@@ -81,6 +81,7 @@ jobs:
         run: |
           case "${{ inputs.job }}" in
             chatid) python -m bot --chatid ;;
+            check)  python -m bot --check ;;
             "")     python -m bot --tick ;;
             *)      python -m bot --once "${{ inputs.job }}" ;;
           esac
