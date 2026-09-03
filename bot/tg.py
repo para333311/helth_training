@@ -182,6 +182,17 @@ class Telegram:
             )
         except TelegramError as exc:
             log.warning("getUpdates: %s", exc)
+            # 409 = 웹훅이 걸려 있어 폴링이 막힌 상태. 2026-09-03 실측: Render(webapp.py)가
+            # 뜰 때마다 웹훅을 자기 주소로 다시 걸어서, 이 PC 의 폴링은 DM 을 한 건도
+            # 못 받은 채 빈손으로 돌았다 — 파라님이 보낸 사진 210장이 이 PC 에는 0장이었다.
+            # 폴링으로 돌기로 한 이상 웹훅은 있으면 안 되므로, 보이면 그 자리에서 지운다.
+            # (Render 를 완전히 끄기 전까지의 안전망이자, 혹시 다시 켜져도 이 PC 가 이긴다.)
+            if "[409]" in str(exc):
+                try:
+                    self.call("deleteWebhook")
+                    log.warning("웹훅이 걸려 있어 지웠습니다 — 다음 폴링부터 DM 을 받습니다")
+                except TelegramError as exc2:
+                    log.warning("deleteWebhook 실패: %s", exc2)
             return []
 
     def get_me(self) -> dict:
