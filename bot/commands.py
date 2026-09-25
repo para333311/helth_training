@@ -118,7 +118,30 @@ class CommandHandler:
         show_alert = False
 
         parts = data.split(":")
-        if user_id and len(parts) >= 2 and parts[0] == "checkin" and parts[1] in ("done", "skip"):
+        if user_id and len(parts) == 2 and parts[0] == "wt":
+            # 주간 몸무게 카드 — 주인만 적힌다(채널 버튼은 구독자 누구나 누를 수 있다)
+            if self.cfg.owner_id and user_id != self.cfg.owner_id:
+                toast = "몸무게 기록은 주인만 할 수 있어요."
+            else:
+                try:
+                    kg = float(parts[1])
+                    today = datetime.now(self.cfg.tz).date()
+                    self.store.ensure_user(user_id, user.get("first_name", ""))
+                    self.store.record_weight(user_id, today, kg)
+                    from .goals import 다음단계, load
+                    nxt = 다음단계(kg, load())
+                    toast = f"{kg:.1f}kg 기록했어요." + (f"\n{nxt['차']}차 {nxt['kg']:.0f}kg까지 {kg - nxt['kg']:.1f}kg" if nxt else "\n최종 목표 달성! 🎉")
+                    show_alert = True
+                    msg = cq.get("message") or {}
+                    if msg.get("chat") and msg.get("message_id"):
+                        try:
+                            self.tg.call("editMessageText", chat_id=msg["chat"]["id"], message_id=msg["message_id"],
+                                         text=(msg.get("text") or "⚖️ 이번 주 몸무게").split("\n")[0] + f"\n\n✅ {kg:.1f}kg 기록")
+                        except TelegramError:
+                            pass
+                except ValueError:
+                    toast = "숫자를 못 읽었어요."
+        elif user_id and len(parts) >= 2 and parts[0] == "checkin" and parts[1] in ("done", "skip"):
             action = parts[1]
             today = datetime.now(self.cfg.tz).date()
             target = today
@@ -392,7 +415,20 @@ class CommandHandler:
         file_id = max(sizes, key=lambda s: s.get("file_size", 0))["file_id"]
         caption = (msg.get("caption") or "").strip() or None
 
-        self.store.add_photo(file_id, uid, caption)
+        # 같은 사진이면(다시 압축돼 파일 id 가 달라도) 넣지 않는다 — 파라님 2026-09-25 「중복 사진 삭제」
+        dup = False
+        try:
+            from .phash import dhash, find_same
+            h = dhash(self.tg.download_file_bytes(file_id))
+            if h:
+                dup = find_same(h, [(f, k) for f, k in self.store.photo_hashes() if f != file_id]) is not None
+        except Exception as exc:
+            h = None
+            log.warning("사진 지문 실패 — 중복 검사 없이 넣습니다: %s", exc)
+        if not dup:
+            self.store.add_photo(file_id, uid, caption)
+            if h:
+                self.store.set_phash(file_id, h)
 
         # 사진을 보냈다는 건 운동을 했다는 뜻이므로 오운완도 같이 기록
         today = datetime.now(self.cfg.tz).date()
@@ -401,6 +437,7 @@ class CommandHandler:
 
         self._reply(
             uid,
+            ("🔁 이미 있는 사진이라 빼 두었습니다\n\n" if dup else "") +
             f"{PHOTO_THANKS}\n\n"
             f"━━━━━━━━━━━\n\n"
             f"현재 연속  {stats['streak']}일",

@@ -350,6 +350,11 @@ class Store:
         baseline = first["kg"] if first else kg
         return kg, (baseline - kg) if first else None
 
+    def last_weight(self, user_id: int) -> float | None:
+        with self._conn() as c:
+            row = c.execute("SELECT kg FROM weights WHERE user_id = ? ORDER BY day DESC LIMIT 1", (user_id,)).fetchone()
+        return float(row["kg"]) if row else None
+
     # --- 컨디션 --------------------------------------------------------------
 
     def record_condition(self, user_id: int, day: date, score: int,
@@ -491,6 +496,27 @@ class Store:
                 "ORDER BY used ASC, created ASC"
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def _ensure_phash(self, c) -> None:
+        cols = {r[1] for r in c.execute("PRAGMA table_info(submitted_photos)").fetchall()}
+        if "phash" not in cols:
+            c.execute("ALTER TABLE submitted_photos ADD COLUMN phash TEXT")
+
+    def photo_hashes(self) -> list[tuple[str, str]]:
+        """(file_id, phash) — 오래된 것부터. 지문이 아직 없는 사진은 phash 가 None."""
+        with self._conn() as c:
+            self._ensure_phash(c)
+            rows = c.execute("SELECT file_id, phash FROM submitted_photos ORDER BY created ASC").fetchall()
+        return [(r["file_id"], r["phash"]) for r in rows]
+
+    def set_phash(self, file_id: str, phash: str) -> None:
+        with self._conn() as c:
+            self._ensure_phash(c)
+            c.execute("UPDATE submitted_photos SET phash = ? WHERE file_id = ?", (phash, file_id))
+
+    def delete_photo(self, file_id: str) -> None:
+        with self._conn() as c:
+            c.execute("DELETE FROM submitted_photos WHERE file_id = ?", (file_id,))
 
     def mark_photo_used(self, file_id: str) -> None:
         with self._conn() as c:

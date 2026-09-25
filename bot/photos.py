@@ -78,6 +78,7 @@ class SubmittedPhotos(PhotoSource):
         # 넘어가버린다 — 내가 보낸 사진이 있는데도 남의 스톡 사진이 그 시간대를
         # 차지하는 것이다. 캐시가 있으면 그 한 번의 실패로 슬롯을 뺏기지 않는다.
         self._cache: list[dict] = []
+        self._last: str | None = None
 
     def fetch(self, query: str, rng: random.Random, store=None) -> Photo | None:
         try:
@@ -91,9 +92,16 @@ class SubmittedPhotos(PhotoSource):
         if not rows:
             return None
         # used 오름차순으로 정렬돼 있으므로, 가장 적게 나간 것들 중에서 고른다
+        # 파라님 2026-09-25 「랜덤으로 섞어서」 — 한 바퀴(전부 한 번씩) 돌기 전엔 같은 사진이 다시 안 나오고,
+        # 그 안의 순서는 무작위. 바퀴가 바뀌어도 바로 직전 사진은 피한다.
         fewest = rows[0]["used"]
         pool = [r for r in rows if r["used"] == fewest]
-        item = rng.choice(pool)
+        if len(pool) == 1 and len(rows) > 1 and pool[0]["file_id"] == self._last:
+            pool = [r for r in rows if r["file_id"] != self._last]
+        elif len(pool) > 1:
+            pool = [r for r in pool if r["file_id"] != self._last] or pool
+        item = random.SystemRandom().choice(pool)   # 시각 씨앗(rng)을 쓰면 재시작 뒤 같은 순서가 되풀이된다
+        self._last = item["file_id"]
         return Photo(ref=item["file_id"], credit=item.get("caption") or None,
                      key=item["file_id"])
 

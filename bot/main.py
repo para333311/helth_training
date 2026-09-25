@@ -70,6 +70,10 @@ def build_scheduler(cfg, pub: Publisher, store: Store) -> Scheduler:
     sched.add(DailyJob(name="youtube_nudge_07", fn=pub.youtube_nudge_morning, hour=7, minute=0))
     sched.add(DailyJob(name="youtube_nudge_19", fn=pub.youtube_nudge_evening, hour=19, minute=30))
 
+    # 주간 몸무게 카드(일 09:00) · 목표 카드(월 07:30) — 파라님 2026-09-25
+    sched.add(DailyJob(name="weight", fn=pub.weight_card, hour=9, minute=0, weekdays=(6,)))
+    sched.add(DailyJob(name="goals", fn=pub.goals_card, hour=7, minute=30, weekdays=(0,)))
+
     # 아침 미션
     sched.add(DailyJob(name="mission", fn=pub.morning_mission, hour=6, minute=30))
 

@@ -129,6 +129,22 @@ class Publisher:
             return
         self._text_drop(now)
 
+    def weight_card(self, now: datetime) -> None:
+        """매주 몸무게 묻는 카드 — 버튼으로 기록(파라님 2026-09-25). 다른 숫자는 봇에게 /weight 73.4"""
+        from .goals import weight_buttons, 다음단계, load
+        last = self.store.last_weight(self.cfg.owner_id) if self.cfg.owner_id else None
+        last = last if last is not None else load().get("몸무게", {}).get("시작", 75.0)
+        nxt = 다음단계(last, load())
+        text = (f"⚖️ 이번 주 몸무게는?\n\n지난 기록 {last:.1f}kg"
+                + (f"\n{nxt['차']}차 목표 {nxt['kg']:.0f}kg까지 {last - nxt['kg']:.1f}kg" if nxt else "")
+                + "\n\n아래에서 눌러 주세요 · 다른 숫자는 봇에게 /weight 73.4")
+        self._send(text, reply_markup={"inline_keyboard": weight_buttons(last)})
+
+    def goals_card(self, now: datetime) -> None:
+        from .goals import goals_text
+        last = self.store.last_weight(self.cfg.owner_id) if self.cfg.owner_id else None
+        self._send(goals_text(last))
+
     def _quote_drop(self, now: datetime) -> bool:
         """명언 카드를 그려서 보낸다. Pillow 나 한글 폰트가 없으면 False."""
         if not self.content.quotes:

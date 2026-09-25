@@ -73,6 +73,10 @@ class Scheduler:
         self._jobs: list[Job] = []
 
     def add(self, job: Job) -> None:
+        # DISABLED_JOBS=hyrox,mission,… 는 등록하지 않는다(파라님 2026-09-25 「하이록스·운동 루틴·유튜브 루틴 삭제」 — 코드는 두고 설정으로 끈다)
+        off = {x.strip() for x in os.environ.get("DISABLED_JOBS", "").split(",") if x.strip()}
+        if job.name in off:
+            return
         self._jobs.append(job)
 
     def job_names(self) -> list[str]:
