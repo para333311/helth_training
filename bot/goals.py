@@ -32,7 +32,7 @@ def 날(d: str) -> str:
     return f"{y[2:]}.{int(m)}.{int(dd)}"
 
 
-def goals_text(last_kg: float | None) -> str:
+def goals_text(last_kg: float | None, longest_km: float = 0.0) -> str:
     g = load()
     w, r = g.get("몸무게", {}), g.get("마라톤", {})
     now = last_kg if last_kg is not None else w.get("시작")
@@ -43,9 +43,16 @@ def goals_text(last_kg: float | None) -> str:
         L.append(f"{mark} {s['차']}차 {s['kg']:.0f}kg  ~{날(s['기한'])}")
     if nxt:
         L.append(f"   다음까지 {now - nxt['kg']:.1f}kg")
-    L += ["", f"🏃 마라톤  지금 {r.get('시작', '')}"]
+    from .running import km_of
+    지금 = f"최장 {longest_km:.1f}km" if longest_km else r.get("시작", "")
+    L += ["", f"🏃 마라톤  지금 {지금}"]
+    first_open = True
     for s in r.get("단계", []):
-        L.append(f"· {s['차']}차 {s['거리']}  ~{날(s['기한'])}")
+        done = longest_km >= km_of(s["거리"])
+        mark = "✅" if done else ("👉" if first_open else "·")
+        if not done:
+            first_open = False
+        L.append(f"{mark} {s['차']}차 {s['거리']}  ~{날(s['기한'])}")
         L.append(f"   {s['방법']}")
     return "\n".join(L)
 

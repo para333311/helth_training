@@ -118,7 +118,9 @@ class CommandHandler:
         show_alert = False
 
         parts = data.split(":")
-        if user_id and len(parts) == 2 and parts[0] == "wt":
+        if user_id and parts[0] == "run":
+            toast, show_alert = self._on_run_button(cq, user_id, parts)
+        elif user_id and len(parts) == 2 and parts[0] == "wt":
             # 주간 몸무게 카드 — 주인만 적힌다(채널 버튼은 구독자 누구나 누를 수 있다)
             if self.cfg.owner_id and user_id != self.cfg.owner_id:
                 toast = "몸무게 기록은 주인만 할 수 있어요."
@@ -182,6 +184,105 @@ class CommandHandler:
             )
         except TelegramError as exc:
             log.warning("콜백 응답 실패: %s", exc)
+
+    # --- 마라톤 버튼 · /run · /strava (bot/running.py) ---------------------------
+
+    @property
+    def running(self):
+        if not hasattr(self, "_running"):
+            from .running import Running
+            self._running = Running(self.store, self.cfg.owner_id)
+        return self._running
+
+    def _edit(self, cq: dict, text: str, keyboard: list | None = None) -> None:
+        msg = cq.get("message") or {}
+        if not (msg.get("chat") and msg.get("message_id")):
+            return
+        try:
+            self.tg.call("editMessageText", chat_id=msg["chat"]["id"], message_id=msg["message_id"], text=text,
+                         reply_markup={"inline_keyboard": keyboard or []})
+        except TelegramError as exc:
+            log.warning("카드 고치기 실패: %s", exc)
+
+    def _announce(self, lines: list[str]) -> None:
+        for t in lines:
+            try:
+                self.tg.send_message(self.cfg.channel_id, t)
+            except TelegramError as exc:
+                log.warning("알림 실패: %s", exc)
+
+    def _record_run(self, km: float, minutes: float | None, source: str) -> list[str]:
+        R = self.running
+        before_total, before_top = R.total(), R.longest()
+        R.add(datetime.now(self.cfg.tz).date(), km, minutes, source)
+        return R.after_record(before_total, before_top, datetime.now(self.cfg.tz).date())
+
+    def _on_run_button(self, cq: dict, user_id: int, parts: list[str]) -> tuple[str, bool]:
+        """run:d 다 했다 · run:h 절반 · run:x 못 함 · run:k:<km> 거리 · run:f:<1~4> 느낌. 주인만 기록."""
+        if self.cfg.owner_id and user_id != self.cfg.owner_id:
+            return "달리기 기록은 주인만 할 수 있어요.", False
+        R, act = self.running, parts[1] if len(parts) > 1 else ""
+        head = ((cq.get("message") or {}).get("text") or "🏃").split("\n")[0]
+        if act == "d":
+            self._edit(cq, head + "\n\n✅ 얼마나 달렸나요?\n(정확히: 봇에게 /run 3.2 28:40)", R.distance_buttons(R.prescription()["km"]))
+            return "", False
+        if act == "h":
+            km = round(R.prescription()["km"] / 2, 1)
+            news = self._record_run(km, None, "button")
+            self._edit(cq, head + f"\n\n🌓 {km:.1f}km 기록 — 절반도 한 거예요\n느낌은?", R.feel_buttons())
+            self._announce(news)
+            return f"{km:.1f}km 기록했어요.", False
+        if act == "x":
+            self._edit(cq, head + "\n\n괜찮아요 — 내일 아침에 다시")
+            return "", False
+        if act == "k" and len(parts) == 3:
+            try:
+                km = float(parts[2])
+            except ValueError:
+                return "숫자를 못 읽었어요.", False
+            news = self._record_run(km, None, "button")
+            self._edit(cq, head + f"\n\n✅ {km:g}km 기록\n느낌은?", R.feel_buttons())
+            self._announce(news)
+            return f"{km:g}km 기록했어요.", False
+        if act == "f" and len(parts) == 3:
+            from .running import FEELS
+            f = int(parts[2]) if parts[2].isdigit() else 2
+            R.set_feel(datetime.now(self.cfg.tz).date(), f)
+            self._edit(cq, ((cq.get("message") or {}).get("text") or "").replace("느낌은?", "").rstrip() + f"\n느낌 {FEELS.get(f, '')}")
+            return ("다음 주는 조금 낮춰요. 무리하지 마세요 🙏" if f == 4 else "기록했어요."), f == 4
+        return "", False
+
+    def _run(self, uid: int, args: str) -> None:
+        """/run 3.2 [28:40] — 오늘 달린 거리(와 시간)."""
+        if self.cfg.owner_id and uid != self.cfg.owner_id:
+            return
+        a = args.replace("km", " ").split()
+        try:
+            km = float(a[0])
+        except (IndexError, ValueError):
+            self._reply(uid, "예: /run 3.2 28:40  (거리 km · 시간 분:초는 빼도 됨)")
+            return
+        minutes = None
+        if len(a) > 1 and ":" in a[1]:
+            mm, ss = a[1].split(":", 1)
+            minutes = int(mm) + int(ss) / 60
+        news = self._record_run(km, minutes, "command")
+        self._reply(uid, f"✅ {km:g}km 기록" + (f" · {minutes:.0f}분" if minutes else ""))
+        self._announce(news)
+
+    def _strava(self, uid: int, args: str) -> None:
+        """/strava → 허락 링크 · /strava <허락 뒤 주소> → 연결."""
+        if self.cfg.owner_id and uid != self.cfg.owner_id:
+            return
+        from . import strava
+        if args.strip():
+            self._reply(uid, strava.exchange(args))
+            return
+        url = strava.auth_url()
+        if not url:
+            self._reply(uid, "스트라바 앱 열쇠가 아직 없습니다 — 먼저 strava.com/settings/api 에서 앱을 만들어 주세요")
+            return
+        self._reply(uid, "아래 링크를 눌러 「허락」 → 열리지 않는 페이지(localhost)의 주소창 주소를 통째로 복사해서\n/strava <주소>\n로 보내 주세요\n\n" + url)
 
     def _checkin_toast(self, user_id: int, today: date, target: date, already: bool) -> str:
         """'했다' 클릭에 대한 응답. 주간/월간 진행률을 진행바로 보여준다.
@@ -283,6 +384,8 @@ class CommandHandler:
             "/mission": self._mission,
             "/random": self._random,
             "/weight": self._weight,
+            "/run": self._run,
+            "/strava": self._strava,
             "/condition": self._condition,
             "/myphotos": self._myphotos,
         }.get(command)

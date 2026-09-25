@@ -71,8 +71,13 @@ def build_scheduler(cfg, pub: Publisher, store: Store) -> Scheduler:
     sched.add(DailyJob(name="youtube_nudge_19", fn=pub.youtube_nudge_evening, hour=19, minute=30))
 
     # 주간 몸무게 카드(일 09:00) · 목표 카드(월 07:30) — 파라님 2026-09-25
-    sched.add(DailyJob(name="weight", fn=pub.weight_card, hour=9, minute=0, weekdays=(6,)))
-    sched.add(DailyJob(name="goals", fn=pub.goals_card, hour=7, minute=30, weekdays=(0,)))
+    # 파라님 9/25 「텔 주는 시간은 항상 아침 6시」 — 목표·몸무게·마라톤 카드는 전부 06:00
+    sched.add(DailyJob(name="weight", fn=pub.weight_card, hour=6, minute=0, weekdays=(6,)))
+    sched.add(DailyJob(name="goals", fn=pub.goals_card, hour=6, minute=0, weekdays=(0,)))
+    sched.add(DailyJob(name="run_weekly", fn=pub.run_weekly, hour=6, minute=0, weekdays=(0,)))
+    sched.add(DailyJob(name="run_morning", fn=pub.run_morning, hour=6, minute=0, weekdays=(0, 1, 2, 3, 4)))
+    sched.add(DailyJob(name="run_weekend", fn=pub.run_weekend, hour=6, minute=0, weekdays=(5, 6)))
+    sched.add(IntervalJob(name="strava", fn=pub.strava_sync, minutes=30, start_hour=0, end_hour=23))
 
     # 아침 미션
     sched.add(DailyJob(name="mission", fn=pub.morning_mission, hour=6, minute=30))

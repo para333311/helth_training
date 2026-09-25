@@ -143,7 +143,51 @@ class Publisher:
     def goals_card(self, now: datetime) -> None:
         from .goals import goals_text
         last = self.store.last_weight(self.cfg.owner_id) if self.cfg.owner_id else None
-        self._send(goals_text(last))
+        self._send(goals_text(last, self.running.longest()))
+
+    # --- 마라톤 (bot/running.py · 카드는 전부 06:00) ---------------------------------
+
+    @property
+    def running(self):
+        if not hasattr(self, "_running"):
+            from .running import Running
+            self._running = Running(self.store, self.cfg.owner_id)
+        return self._running
+
+    def run_morning(self, now: datetime) -> None:
+        card = self.running.morning_card(now.date())
+        if card:
+            self._send(card[0], reply_markup={"inline_keyboard": card[1]})
+
+    def run_weekend(self, now: datetime) -> None:
+        card = self.running.weekend_card(now.date())
+        if card:
+            self._send(card[0], reply_markup={"inline_keyboard": card[1]})
+
+    def run_weekly(self, now: datetime) -> None:
+        from datetime import timedelta
+        from .running import monday
+        last_mon = monday(now.date()) - timedelta(days=7)
+        self.running.record_week_streak(last_mon)
+        note = self.running.advance_week(last_mon)
+        self._send(self.running.weekly_text(now.date(), note))
+
+    def strava_sync(self, now: datetime) -> None:
+        """30분마다 — 스트라바의 새 달리기를 기록하고, 달성한 것이 있으면 알린다(글은 새벽에도 — 달린 직후 받는 게 동기부여)."""
+        from datetime import date as _d, timedelta
+        from . import strava
+        if not strava.connected():
+            return
+        runs = strava.recent_runs(int((now - timedelta(days=14)).timestamp()))
+        if not runs:
+            return
+        R = self.running
+        for r in runs:
+            before_total, before_top = R.total(), R.longest()
+            if R.add(_d.fromisoformat(r["day"]), r["km"], r["minutes"], "strava", "strava:" + r["id"]):
+                self._send(f"🏃 {r['km']:.1f}km · {r['minutes']:.0f}분 기록됨 (스트라바)", reply_markup={"inline_keyboard": R.feel_buttons()})
+                for t in R.after_record(before_total, before_top, now.date()):
+                    self._send(t)
 
     def _quote_drop(self, now: datetime) -> bool:
         """명언 카드를 그려서 보낸다. Pillow 나 한글 폰트가 없으면 False."""
