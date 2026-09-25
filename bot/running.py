@@ -204,9 +204,9 @@ class Running:
         yday = today - timedelta(days=1)
         y = self.runs_between(yday, yday)
         ytxt = f"\n어제 {sum(r['km'] for r in y):.1f}km ✅" if y else ""
-        text = f"{head}\n\n{p['text']}\n(약 {p['km']:.1f}km){ytxt}\n{goal}"
-        return text, [[{"text": "✅ 다 했다", "callback_data": "run:d"}, {"text": "🌓 절반만", "callback_data": "run:h"},
-                       {"text": "❌ 오늘은 못 함", "callback_data": "run:x"}]]
+        # 파라님 9/25 「버튼은 몸무게처럼 6개」 — 달린 거리를 바로 누른다
+        text = f"{head}\n\n{p['text']}\n(약 {p['km']:.1f}km){ytxt}\n{goal}\n\n달린 거리를 눌러 주세요 · 다른 거리는 봇에게 /run 4.2"
+        return text, self.distance_buttons(p["km"])
 
     def weekend_card(self, today: date) -> tuple[str, list] | None:
         """토·일 06:00 — 이번 주 3회가 안 됐을 때만. 주중 2회면 「한 번만 더」."""
@@ -220,9 +220,8 @@ class Running:
             msg = "주중 2회 ✅ — 오늘 한 번만 더 하면 이번 주 완성"
         else:
             msg = f"이번 주 {n}회 — 주말에 채워 봐요 (이틀 연속 무리는 금지)"
-        text = f"🏃 주말 보충 · 이번 주 {n}/3\n\n{msg}\n\n{p['text']}\n(약 {p['km']:.1f}km)"
-        return text, [[{"text": "✅ 다 했다", "callback_data": "run:d"}, {"text": "🌓 절반만", "callback_data": "run:h"},
-                       {"text": "❌ 오늘은 쉼", "callback_data": "run:x"}]]
+        text = f"🏃 주말 보충 · 이번 주 {n}/3\n\n{msg}\n\n{p['text']}\n(약 {p['km']:.1f}km)\n\n달린 거리를 눌러 주세요 · 다른 거리는 봇에게 /run 4.2"
+        return text, self.distance_buttons(p["km"])
 
     def weekly_text(self, today: date, note: str = "") -> str:
         """월 06:00 — 지난주 요약 + 이번 주 처방."""

@@ -15,7 +15,7 @@ st = Store(Path(tempfile.mkdtemp()) / "t.db")
 R = Running(st, 1)
 mon = date(2026, 9, 28)   # 월
 t("첫 주 처방 = 1주차", "1분 달리기" in R.prescription()["text"])
-c = R.morning_card(mon); t("월 카드 나감 · 버튼 3개", c and len(c[1][0]) == 3)
+c = R.morning_card(mon); t("월 카드 나감 · 거리 버튼 6개", c and sum(len(r) for r in c[1]) == 6 and c[1][0][0]["callback_data"].startswith("run:k:"))
 R.add(mon, 2.0)   # 새벽 5시에 달린 것처럼 — 날짜만 본다
 c = R.morning_card(mon); t("오늘 이미 달렸으면 「미션 완료」", c and "미션 완료" in c[0])
 R.add(mon + timedelta(days=2), 2.2)
