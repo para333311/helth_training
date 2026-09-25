@@ -109,6 +109,13 @@ class Publisher:
         앞의 것이 안 되면 뒤로 넘어가고, 전부 안 되면 텍스트로 대체한다.
         어떤 경우에도 그 시간대가 비지 않는다.
         """
+        # 2026-09-25 파라님 「주기는 한 시간 한 장」 — MOTIVATION_MODE=photo 면 매 시각 사진 카드가 먼저다.
+        # 사진이 없을 때만 명언 카드 → 텍스트. 유튜브 링크는 07:00·19:30 따로 나간다.
+        if getattr(self.cfg, "motivation_mode", "") == "photo":
+            if self._photo_drop(now) or self._quote_drop(now):
+                return
+            self._text_drop(now)
+            return
         order = self._interval_slot(now) % 3
 
         if order == 0 and self.feeds and self._video_drop(now):

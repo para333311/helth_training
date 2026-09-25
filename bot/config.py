@@ -75,6 +75,7 @@ class Config:
     # 경로
     data_dir: Path = field(default_factory=lambda: ROOT / "content" / "data")
     photo_dir: Path = field(default_factory=lambda: ROOT / "content" / "photos")
+    motivation_mode: str = ""   # "photo" = 매 시각 사진 카드(없을 때만 명언·텍스트) · 빈 값 = 유튜브·사진·명언 돌려 내기
     db_path: Path = field(default_factory=lambda: ROOT / "data" / "helth.db")
 
     # Cloudflare D1 (선택). 셋 다 있으면 로컬 SQLite 대신 D1 을 쓴다.
@@ -133,6 +134,7 @@ def load_config(require_channel: bool = True) -> Config:
         photo_start_hour=_int("PHOTO_START_HOUR", 16),
         photo_end_hour=_int("PHOTO_END_HOUR", 21),
         photo_source=os.environ.get("PHOTO_SOURCE", "local").strip().lower(),
+        motivation_mode=os.environ.get("MOTIVATION_MODE", "").strip().lower(),
         photo_query=os.environ.get("PHOTO_QUERY", "home workout,gym motivation,fitness").strip(),
         unsplash_key=os.environ.get("UNSPLASH_ACCESS_KEY", "").strip(),
         pexels_key=os.environ.get("PEXELS_API_KEY", "").strip(),
