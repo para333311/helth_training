@@ -185,7 +185,7 @@ class Publisher:
         for r in runs:
             before_total, before_top = R.total(), R.longest()
             if R.add(_d.fromisoformat(r["day"]), r["km"], r["minutes"], "strava", "strava:" + r["id"]):
-                self._send(f"🏃 {r['km']:.1f}km · {r['minutes']:.0f}분 기록됨 (스트라바)", reply_markup={"inline_keyboard": R.feel_buttons()})
+                self._send(f"🏃 {r['km']:.1f}km · {r['minutes']:.0f}분 기록됨 (스트라바)")
                 for t in R.after_record(before_total, before_top, now.date()):
                     self._send(t)
 

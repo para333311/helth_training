@@ -1,6 +1,6 @@
 """마라톤 트래킹 — 1km → 풀코스(2027.11). 파라님 2026-09-25 (paracano 기획/20260925-오운완-마라톤-카드.md).
 
-  카드는 전부 아침 06:00 (파라님 「텔 주는 시간은 항상 아침 6시」):
+  카드는 전부 새벽 05:00 (파라님 9/25 「카드는 새벽 5시로」):
     월~금  오늘의 달리기 — 그 주 3회를 채웠으면 안 보낸다
     토·일  주중에 모자랐으면 보충 카드(주중 2회면 「한 번만 더」)
     월     지난주 요약 + 이번 주 처방
@@ -199,8 +199,8 @@ class Running:
         goal = f"{s['차']}차 {s['거리']}까지 · 최장 {top:.1f}km" if s else "🏁 풀코스 달성!"
         if today_runs:
             km = sum(r["km"] for r in today_runs)
-            text = f"{head}\n\n✅ 오늘 이미 {km:.1f}km — 미션 완료\n{goal}\n\n느낌은?"
-            return text, self.feel_buttons()
+            text = f"{head}\n\n✅ 오늘 이미 {km:.1f}km — 미션 완료\n{goal}"
+            return text, []
         yday = today - timedelta(days=1)
         y = self.runs_between(yday, yday)
         ytxt = f"\n어제 {sum(r['km'] for r in y):.1f}km ✅" if y else ""

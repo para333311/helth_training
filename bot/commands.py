@@ -229,7 +229,7 @@ class CommandHandler:
         if act == "h":
             km = round(R.prescription()["km"] / 2, 1)
             news = self._record_run(km, None, "button")
-            self._edit(cq, head + f"\n\n🌓 {km:.1f}km 기록 — 절반도 한 거예요\n느낌은?", R.feel_buttons())
+            self._edit(cq, head + f"\n\n🌓 {km:.1f}km 기록 — 절반도 한 거예요")
             self._announce(news)
             return f"{km:.1f}km 기록했어요.", False
         if act == "x":
@@ -241,7 +241,7 @@ class CommandHandler:
             except ValueError:
                 return "숫자를 못 읽었어요.", False
             news = self._record_run(km, None, "button")
-            self._edit(cq, head + f"\n\n✅ {km:g}km 기록\n느낌은?", R.feel_buttons())
+            self._edit(cq, head + f"\n\n✅ {km:g}km 기록")   # 느낌(표정) 버튼은 뺐다 — 파라님 9/25
             self._announce(news)
             return f"{km:g}km 기록했어요.", False
         if act == "f" and len(parts) == 3:
