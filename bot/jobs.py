@@ -231,6 +231,8 @@ class Publisher:
                              + f" · 걷기 누적 {sum(x['km'] for x in self.walking.all()):.1f}km")
             elif quiet:
                 continue
+            if not quiet and (w["run"] or w["kind"] in ("WALKING", "HIKING")):
+                self._auto_done(w["day"])
             text = "\n".join(lines)
             if news:
                 text += "\n\n" + "\n".join(news)
@@ -264,6 +266,8 @@ class Publisher:
             if not quiet:
                 for t in live(W.steps(), today, old, got[today]):
                     self._send(t)
+                if got[today] >= 10000:
+                    self._auto_done(today)
         R = self.running
         if not quiet and now.hour >= 9 and R.state("걸음결산") != yday.isoformat() and yday.isoformat() in W.steps():
             R.set_state("걸음결산", yday.isoformat())
@@ -464,6 +468,11 @@ class Publisher:
             except TelegramError as exc:
                 log.error("투표 발행 실패: %s", exc)
 
+        if self.cfg.solo_mode and self.cfg.owner_id:
+            # 파라님 9/28 「필요 없는?」 — 버튼 대신 삼성헬스로 자동 판정(운동 한 번 또는 만보)
+            self._auto_checkin_card(now)
+            return
+
         lines = ["🌙 오운완 체크", "", "오늘 미션, 하셨나요?", "", "아래 버튼 하나만 눌러주세요."]
 
         if not self.cfg.solo_mode and self.member_count() >= MIN_MEMBERS_FOR_STATS:
@@ -487,6 +496,42 @@ class Publisher:
         msg = self._send("\n".join(lines), reply_markup=keyboard)
         if msg:
             self.store.mark_seen("checkin_msg", str(msg.get("message_id")))
+
+    def _today_health(self, day) -> dict:
+        iso = day.isoformat()
+        runs = [r for r in self.running.all_runs() if r["day"] == iso]
+        walks = [w for w in self.walking.all() if w["day"] == iso]
+        return {"runs": runs, "walks": walks, "steps": self.walking.steps().get(iso, 0)}
+
+    def _auto_done(self, day) -> bool:
+        """오늘 오운완 인정 — 달리기·걷기 운동 한 번 또는 만보. 인정되면 스트릭에 적는다(조용히)."""
+        from .walking import GOAL
+        h = self._today_health(day)
+        if not (h["runs"] or h["walks"] or h["steps"] >= GOAL) or not self.cfg.owner_id:
+            return False
+        self.store.ensure_user(self.cfg.owner_id, "")
+        self.store.record_done(self.cfg.owner_id, day)
+        return True
+
+    def _auto_checkin_card(self, now: datetime) -> None:
+        from .walking import GOAL
+        today = self._today(now)
+        h = self._today_health(today)
+        done = self._auto_done(today)
+        bits = []
+        if h["runs"]:
+            bits.append(f"달리기 {sum(r['km'] for r in h['runs']):.2f}km" + (f"({len(h['runs'])}번)" if len(h["runs"]) > 1 else ""))
+        if h["walks"]:
+            bits.append(f"걷기 {sum(w['km'] for w in h['walks']):.2f}km")
+        bits.append(f"{h['steps']:,}보")
+        stats = self.store.stats(self.cfg.owner_id, today)
+        if done:
+            lines = ["🌙 오늘 오운완 ✅ (삼성헬스 자동 확인)", "", " · ".join(bits),
+                     f"연속 {stats['streak']}일 · 이번 주 {stats['week']}/7일"]
+        else:
+            lines = ["🌙 오늘 오운완 — 아직", "", " · ".join(bits) + f" · 만보까지 {max(0, GOAL - h['steps']):,}",
+                     "자정 전에 운동 한 번이나 만보를 채우면 자동으로 인정돼요"]
+        self._send("\n".join(lines))
 
     def weekly_report(self, now: datetime) -> None:
         today = self._today(now)
