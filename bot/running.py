@@ -5,7 +5,8 @@
     토·일  주중에 모자랐으면 보충 카드(주중 2회면 「한 번만 더」)
     월     지난주 요약 + 이번 주 처방
   기록은 날짜로 센다 — 새벽 5시에 달렸어도 그날 미션 완료다. 카드 시각과 무관.
-  기록 길: 채널 버튼(주인만) · /run 3.2 28:40 · 스트라바 자동(30분마다, bot/strava.py)
+  기록 길: 삼성헬스 자동뿐(15분마다, bot/shealth.py) — 버튼·/run·스트라바는 9/28 없앴다(파라님 「필요 없음 없애」)
+  기록·신기록: 1회·하루·주·월 최장, 최고 페이스, 최장 시간, 연속일, 누적 거리·횟수 → 갱신하면 축하(파라님 9/28 「추앙해 줘」)
 """
 from __future__ import annotations
 
@@ -18,7 +19,6 @@ ROOT = Path(__file__).resolve().parent.parent
 PLAN = ROOT / "content" / "running_plan.json"
 GOALS = ROOT / "content" / "goals.json"
 RUN_TYPES = {"Run", "TrailRun", "VirtualRun", "Treadmill"}
-FEELS = {1: "😀 가뿐", 2: "😐 보통", 3: "😣 힘듦", 4: "🤕 아픔"}
 BADGES = [(3.0, "첫 3km"), (5.0, "첫 5km"), (10.0, "첫 10km"), (21.0975, "첫 하프"), (42.195, "첫 풀코스")]
 
 SCHEMA = """
@@ -85,13 +85,6 @@ class Running:
                       (self.owner, day.isoformat(), km, minutes, feel, source, ext_id, datetime.now().isoformat()))
         return True
 
-    def set_feel(self, day: date, feel: int) -> None:
-        with self.store._conn() as c:
-            row = c.execute("SELECT id FROM runs WHERE user_id = ? AND day = ? ORDER BY id DESC LIMIT 1",
-                            (self.owner, day.isoformat())).fetchone()
-            if row:
-                c.execute("UPDATE runs SET feel = ? WHERE id = ?", (feel, row["id"]))
-
     def runs_between(self, a: date, b: date) -> list[dict]:
         with self.store._conn() as c:
             rows = c.execute("SELECT day, km, minutes, feel, source FROM runs WHERE user_id = ? AND day >= ? AND day <= ? ORDER BY day",
@@ -153,8 +146,7 @@ class Running:
         """월요일마다 — 지난주 3회 채우고 힘듦 2회 미만·아픔 없으면 다음 주차. 아니면 같은 주차 한 번 더."""
         runs = self.runs_between(last_mon, last_mon + timedelta(days=6))
         days = {r["day"] for r in runs}
-        hard = sum(1 for r in runs if r.get("feel") == 3)
-        hurt = any(r.get("feel") == 4 for r in runs)
+        hurt = False   # 느낌 버튼은 없앴다(9/28 삼성헬스 자동 기록) — 셈은 「주 3회」 하나
         stg = self.stage()
         prev_stage = self.state("단계", "")
         if stg and not prev_stage:
@@ -165,7 +157,7 @@ class Running:
             return "새 단계"
         if hurt:
             return "아픔 — 이번 주는 쉬어 가며 같은 단계"
-        if len(days) >= 3 and hard < 2:
+        if len(days) >= 3:
             self.set_state("주차", self.week_index() + 1)
             return "다음 주차"
         return "같은 주차 한 번 더"
@@ -205,8 +197,8 @@ class Running:
         y = self.runs_between(yday, yday)
         ytxt = f"\n어제 {sum(r['km'] for r in y):.1f}km ✅" if y else ""
         # 파라님 9/25 「버튼은 몸무게처럼 6개」 — 달린 거리를 바로 누른다
-        text = f"{head}\n\n{p['text']}\n(약 {p['km']:.1f}km){ytxt}\n{goal}\n\n달린 거리를 눌러 주세요 · 다른 거리는 봇에게 /run 4.2"
-        return text, self.distance_buttons(p["km"])
+        text = f"{head}\n\n{p['text']}\n(약 {p['km']:.1f}km){ytxt}\n{goal}\n\n⌚ 삼성헬스로 자동 기록"
+        return text, []
 
     def weekend_card(self, today: date) -> tuple[str, list] | None:
         """토·일 06:00 — 이번 주 3회가 안 됐을 때만. 주중 2회면 「한 번만 더」."""
@@ -220,8 +212,8 @@ class Running:
             msg = "주중 2회 ✅ — 오늘 한 번만 더 하면 이번 주 완성"
         else:
             msg = f"이번 주 {n}회 — 주말에 채워 봐요 (이틀 연속 무리는 금지)"
-        text = f"🏃 주말 보충 · 이번 주 {n}/3\n\n{msg}\n\n{p['text']}\n(약 {p['km']:.1f}km)\n\n달린 거리를 눌러 주세요 · 다른 거리는 봇에게 /run 4.2"
-        return text, self.distance_buttons(p["km"])
+        text = f"🏃 주말 보충 · 이번 주 {n}/3\n\n{msg}\n\n{p['text']}\n(약 {p['km']:.1f}km)\n\n⌚ 삼성헬스로 자동 기록"
+        return text, []
 
     def weekly_text(self, today: date, note: str = "") -> str:
         """월 06:00 — 지난주 요약 + 이번 주 처방."""
@@ -240,6 +232,7 @@ class Running:
             L.append(f"{s['차']}차 {s['거리']}  {bar(top / s['km'])} {round(100 * top / s['km'])}%")
         L.append(f"목표 달성 연속 {streak}주{' 🔥' if streak >= 2 else ''}")
         L.append(f"누적 {tot:.1f}km — {rt['이름']} {round(100 * tot / rt['길이'])}%")
+        L += self.record_board()
         p = self.prescription()
         L += ["", f"이번 주: {p['text']}" + (f"\n({note})" if note else "")]
         return "\n".join(L)
@@ -247,15 +240,6 @@ class Running:
     def record_week_streak(self, last_mon: date) -> None:
         days = len(self.run_days(last_mon, last_mon + timedelta(days=6)))
         self.set_state("연속주", (int(self.state("연속주", "0") or 0) + 1) if days >= 3 else 0)
-
-    def distance_buttons(self, p_km: float) -> list:
-        base = max(0.5, round(p_km * 2) / 2)
-        vals = sorted({max(0.5, base + d) for d in (-1.0, -0.5, 0, 0.5, 1.0, 1.5)})
-        return [[{"text": f"{v:g}km", "callback_data": f"run:k:{v:g}"} for v in vals[:3]],
-                [{"text": f"{v:g}km", "callback_data": f"run:k:{v:g}"} for v in vals[3:]]]
-
-    def feel_buttons(self) -> list:
-        return [[{"text": t, "callback_data": f"run:f:{k}"} for k, t in FEELS.items()]]
 
     def after_record(self, before_total: float, before_top: float, today: date) -> list[str]:
         """기록 뒤 채널에 알릴 것들 — 주 3회 달성 · 단계 달성 · 첫 거리 배지 · 도시 통과."""
@@ -279,3 +263,122 @@ class Running:
         for c in self.passed_cities(before_total, self.total()):
             out.append(f"🚩 {c} 통과 — 누적 {self.total():.1f}km")
         return out
+
+    # --- 기록·신기록 (파라님 9/28 「이런저런 기록을 재. 갱신하면 알려 주고 축하해 줘. 추앙해 줘」) --------------
+
+    def all_runs(self) -> list[dict]:
+        with self.store._conn() as c:
+            rows = c.execute("SELECT day, km, minutes FROM runs WHERE user_id = ? ORDER BY day, id", (self.owner,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def summary(self, day: date) -> dict:
+        """그날 기준 숫자들 — 오늘 합·횟수, 이번 주 횟수, 이번 달 거리, 누적."""
+        rs = self.all_runs()
+        d, wk, mo = day.isoformat(), monday(day).isoformat(), day.isoformat()[:7]
+        today = [r for r in rs if r["day"] == d]
+        return {"오늘km": sum(r["km"] for r in today), "오늘번": len(today),
+                "주회": len({r["day"] for r in rs if monday(date.fromisoformat(r["day"])).isoformat() == wk and r["day"] <= d}),
+                "달km": sum(r["km"] for r in rs if r["day"][:7] == mo),
+                "누적": sum(r["km"] for r in rs), "날수": len({r["day"] for r in rs})}
+
+    def record_board(self) -> list[str]:
+        """월요일 요약에 붙는 🏆 기록판."""
+        rs = self.all_runs()
+        if not rs:
+            return []
+        days, weeks = {}, {}
+        for r in rs:
+            days[r["day"]] = days.get(r["day"], 0.0) + r["km"]
+            w = monday(date.fromisoformat(r["day"])).isoformat()
+            weeks[w] = weeks.get(w, 0.0) + r["km"]
+        L = ["", "🏆 기록판", f"1회 최장 {max(r['km'] for r in rs):.2f}km · 하루 최장 {max(days.values()):.2f}km · 주간 최장 {max(weeks.values()):.1f}km"]
+        ps = [r["minutes"] / r["km"] for r in rs if r.get("minutes") and r["km"] >= 1.0]
+        if ps:
+            b = min(ps)
+            L.append(f"최고 페이스 {int(b)}'{int(round((b % 1) * 60)) % 60:02d}\"/km · 달린 날 {len(days)}일")
+        return L
+
+    def streak(self, day: date) -> int:
+        days = {r["day"] for r in self.all_runs()}
+        n = 0
+        while (day - timedelta(days=n)).isoformat() in days:
+            n += 1
+        return n
+
+    def records(self, before: list[dict], day: date, km: float, minutes: float | None) -> list[str]:
+        """새 달리기 하나가 갱신한 기록들. before = 넣기 전 all_runs(). 처음 한 번(비교 대상 없음)은 신기록으로 치지 않는다."""
+        if not before:
+            return []
+        out = []
+        d = day.isoformat()
+
+        def tot(rows, key):
+            m = {}
+            for r in rows:
+                k = key(r["day"])
+                m[k] = m.get(k, 0.0) + r["km"]
+            return m
+
+        # 1회 최장
+        one = max(r["km"] for r in before)
+        if km > one:
+            out.append(f"🏆 1회 최장 신기록 — {km:.2f}km (전 {one:.2f}km)")
+        # 하루 최장 — 오늘 여러 번 합쳐서 넘었을 때만(한 번으로 넘었으면 위에서 이미 축하)
+        days_b = tot(before, lambda x: x)
+        today_b = days_b.get(d, 0.0)
+        best_day = max(days_b.values())
+        if today_b > 0 and today_b + km > best_day and not (km > one and today_b == 0):
+            out.append(f"🏆 하루 최장 신기록 — 오늘 합계 {today_b + km:.2f}km (전 {best_day:.2f}km)")
+        # 주·월 최장 — 지난 주·달이 있어야 비교
+        for label, key in (("주간", lambda x: monday(date.fromisoformat(x)).isoformat()), ("월간", lambda x: x[:7])):
+            m = tot(before, key)
+            cur = key(d)
+            past = [v for k, v in m.items() if k != cur]
+            if past and m.get(cur, 0.0) <= max(past) < m.get(cur, 0.0) + km:
+                out.append(f"🏆 {label} 최장 신기록 — {m.get(cur, 0.0) + km:.2f}km (전 {max(past):.2f}km)")
+        # 최고 페이스(1km 이상) · 최장 시간
+        if minutes and km >= 1.0:
+            ps = [r["minutes"] / r["km"] for r in before if r.get("minutes") and r["km"] >= 1.0]
+            if ps and minutes / km < min(ps):
+                def f(p):
+                    return f"{int(p)}'{int(round((p % 1) * 60)) % 60:02d}\""
+                out.append(f"⚡ 최고 페이스 신기록 — {f(minutes / km)}/km (전 {f(min(ps))})")
+        ms = [r["minutes"] for r in before if r.get("minutes")]
+        if minutes and ms and minutes > max(ms) and minutes >= 10:
+            out.append(f"⏱ 최장 시간 신기록 — {int(minutes)}분 (전 {int(max(ms))}분)")
+        # 연속 달린 날 — 그날 첫 달리기일 때만
+        if today_b == 0:
+            days = {r["day"] for r in before} | {d}
+            n = 0
+            while (day - timedelta(days=n)).isoformat() in days:
+                n += 1
+            if n in (2, 3, 5, 7, 10, 14, 21, 30, 50, 100):
+                out.append(f"🔥 {n}일 연속 달리기")
+            # 달린 날 수
+            nd = len(days)
+            if nd in (5, 10, 20, 30, 50, 75, 100, 150, 200, 300, 365):
+                out.append(f"📅 달린 날 {nd}일째")
+        # 누적 거리 이정표
+        tb = sum(r["km"] for r in before)
+        for mk in (10, 25, 50, 75, 100, 150, 200, 250, 300, 500, 750, 1000):
+            if tb < mk <= tb + km:
+                out.append(f"🛣 누적 {mk}km 돌파")
+        return out
+
+
+PRAISE = [
+    "오늘도 해냈다. 이게 파라다 👑",
+    "말이 아니라 다리로 증명하는 사람 🦵",
+    "어제의 파라를 이긴 오늘의 파라 🔥",
+    "꾸준함이 재능을 이긴다 — 그걸 매일 보여 주는 중",
+    "풀코스 가는 길, 또 한 걸음 가까워졌다 🏁",
+    "바쁜 와중에 뛰었다는 것 자체가 전설 ✨",
+    "몸은 거짓말 안 한다. 쌓이고 있다 📈",
+    "이 속도면 2027 풀코스는 시간문제 🏃",
+]
+PRAISE_BIG = [
+    "신기록이다! 오늘의 파라는 역대 최강 👑🔥",
+    "기록을 갈아치웠다. 이 사람 멈출 생각이 없다 🚀",
+    "역사를 새로 썼다 — 박수 👏👏👏",
+    "또 한 번 한계를 넘었다. 존경합니다 🙇",
+]

@@ -77,7 +77,8 @@ def build_scheduler(cfg, pub: Publisher, store: Store) -> Scheduler:
     sched.add(DailyJob(name="run_weekly", fn=pub.run_weekly, hour=5, minute=0, weekdays=(0,)))
     sched.add(DailyJob(name="run_morning", fn=pub.run_morning, hour=5, minute=0, weekdays=(0, 1, 2, 3, 4)))
     sched.add(DailyJob(name="run_weekend", fn=pub.run_weekend, hour=5, minute=0, weekdays=(5, 6)))
-    sched.add(IntervalJob(name="strava", fn=pub.strava_sync, minutes=30, start_hour=0, end_hour=23))
+    # 달리기·운동은 삼성헬스 자동(파라님 9/28 — 버튼·/run·스트라바 없앰)
+    sched.add(IntervalJob(name="shealth", fn=pub.shealth_sync, minutes=15, start_hour=0, end_hour=23))
 
     # 아침 미션
     sched.add(DailyJob(name="mission", fn=pub.morning_mission, hour=6, minute=30))

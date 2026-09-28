@@ -157,12 +157,12 @@ class Publisher:
     def run_morning(self, now: datetime) -> None:
         card = self.running.morning_card(now.date())
         if card:
-            self._send(card[0], reply_markup={"inline_keyboard": card[1]})
+            self._send(card[0], **({"reply_markup": {"inline_keyboard": card[1]}} if card[1] else {}))
 
     def run_weekend(self, now: datetime) -> None:
         card = self.running.weekend_card(now.date())
         if card:
-            self._send(card[0], reply_markup={"inline_keyboard": card[1]})
+            self._send(card[0], **({"reply_markup": {"inline_keyboard": card[1]}} if card[1] else {}))
 
     def run_weekly(self, now: datetime) -> None:
         from datetime import timedelta
@@ -172,22 +172,53 @@ class Publisher:
         note = self.running.advance_week(last_mon)
         self._send(self.running.weekly_text(now.date(), note))
 
-    def strava_sync(self, now: datetime) -> None:
-        """30분마다 — 스트라바의 새 달리기를 기록하고, 달성한 것이 있으면 알린다(글은 새벽에도 — 달린 직후 받는 게 동기부여)."""
-        from datetime import date as _d, timedelta
-        from . import strava
-        if not strava.connected():
-            return
-        runs = strava.recent_runs(int((now - timedelta(days=14)).timestamp()))
-        if not runs:
+    def shealth_sync(self, now: datetime, quiet: bool = False) -> None:
+        """15분마다 — 삼성헬스(Health Sync → 드라이브)의 새 운동을 기록하고 오운완에 한 통. 달리기는 마라톤 셈·신기록까지.
+        quiet=True 는 처음 채울 때(지난 것은 조용히 적기만)."""
+        import random
+        from . import shealth
+        from .running import PRAISE, PRAISE_BIG
+        if not shealth.connected():
             return
         R = self.running
-        for r in runs:
-            before_total, before_top = R.total(), R.longest()
-            if R.add(_d.fromisoformat(r["day"]), r["km"], r["minutes"], "strava", "strava:" + r["id"]):
-                self._send(f"🏃 {r['km']:.1f}km · {r['minutes']:.0f}분 기록됨 (스트라바)")
-                for t in R.after_record(before_total, before_top, now.date()):
-                    self._send(t)
+        try:
+            ws = shealth.fetch(lambda name: bool(R.state("sh:" + name)))
+        except Exception as exc:
+            log.warning("삼성헬스 가져오기 실패: %s", exc)
+            return
+        for w in ws:
+            R.set_state("sh:" + w["id"], w["kind"])
+            if shealth.noise(w):
+                continue
+            minutes = w["seconds"] / 60
+            head = f"💪 [파라] {w['name']}" + (f" {w['km']:.2f}km" if w["km"] >= 0.05 else "")
+            L = [f"{w['day'].month}/{w['day'].day} {w['hm']}", shealth.dur(minutes)]
+            if w["run"] or w["kind"] in ("WALKING", "HIKING"):
+                L.append(("페이스 " + shealth.pace(w["km"], minutes)) if w["km"] >= 0.05 else "")
+            elif w["km"] >= 0.05:
+                L.append(f"평균 {w['km'] / (minutes / 60):.1f}km/h")
+            if w["hr"]:
+                L.append(f"심박 {w['hr']}")
+            lines = [head, "· " + " · ".join(x for x in L if x)]
+            news: list[str] = []
+            if w["run"]:
+                before = R.all_runs()
+                before_total, before_top = R.total(), R.longest()
+                if not R.add(w["day"], w["km"], minutes, "shealth", "sh:" + w["id"]):
+                    continue
+                if quiet:
+                    continue
+                news = R.records(before, w["day"], w["km"], minutes) + R.after_record(before_total, before_top, w["day"])
+                s = R.summary(w["day"])
+                lines.append(f"· 오늘 {s['오늘km']:.2f}km" + (f"({s['오늘번']}번)" if s["오늘번"] > 1 else "")
+                             + f" · 이번 주 {s['주회']}/3회 · 이번 달 {s['달km']:.1f}km · 누적 {s['누적']:.1f}km")
+            elif quiet:
+                continue
+            text = "\n".join(lines)
+            if news:
+                text += "\n\n" + "\n".join(news)
+            text += "\n\n" + random.choice(PRAISE_BIG if any(n.startswith(("🏆", "⚡", "🏅", "🎉")) for n in news) else PRAISE)
+            self._send(text)
 
     def _quote_drop(self, now: datetime) -> bool:
         """명언 카드를 그려서 보낸다. Pillow 나 한글 폰트가 없으면 False."""
