@@ -204,20 +204,25 @@ class Publisher:
             if w["run"]:
                 before = R.all_runs()
                 before_total, before_top = R.total(), R.longest()
-                if not R.add(w["day"], w["km"], minutes, "shealth", "sh:" + w["id"]):
+                if not R.add(w["day"], w["km"], minutes, "shealth", "sh:" + w["id"], hm=w["hm"],
+                             hr=w["hr"] or None, steps=w["steps"] or None, kcal=w["kcal"] or None):
                     continue
                 if quiet:
                     continue
-                news = R.records(before, w["day"], w["km"], minutes) + R.after_record(before_total, before_top, w["day"])
+                from .records import tagline, trim
+                new = {"day": w["day"].isoformat(), "hm": w["hm"], "km": w["km"], "minutes": minutes,
+                       "hr": w["hr"], "steps": w["steps"], "kcal": w["kcal"]}
+                news = trim(R.records(before, new) + R.after_record(before_total, before_top, w["day"]))
                 s = R.summary(w["day"])
                 lines.append(f"· 오늘 {s['오늘km']:.2f}km" + (f"({s['오늘번']}번)" if s["오늘번"] > 1 else "")
                              + f" · 이번 주 {s['주회']}/3회 · 이번 달 {s['달km']:.1f}km · 누적 {s['누적']:.1f}km")
+                lines.append(tagline(R.all_runs(), new, w["day"]))
             elif quiet:
                 continue
             text = "\n".join(lines)
             if news:
                 text += "\n\n" + "\n".join(news)
-            text += "\n\n" + random.choice(PRAISE_BIG if any(n.startswith(("🏆", "⚡", "🏅", "🎉")) for n in news) else PRAISE)
+            text += "\n\n" + random.choice(PRAISE_BIG if any(n.startswith(("🏆", "⚡", "🏅", "🎉", "⚾")) for n in news) else PRAISE)
             self._send(text)
 
     def _quote_drop(self, now: datetime) -> bool:

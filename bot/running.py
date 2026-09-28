@@ -73,16 +73,22 @@ class Running:
         self.owner = owner_id
         with store._conn() as c:
             c.executescript(SCHEMA) if hasattr(c, "executescript") else None
+            # 9/28 기록실 — 출발 시각·심박·걸음·칼로리(삼성헬스에서 옴)
+            have = {r[1] for r in c.execute("PRAGMA table_info(runs)").fetchall()}
+            for col, typ in (("hm", "TEXT"), ("hr", "INTEGER"), ("steps", "INTEGER"), ("kcal", "INTEGER")):
+                if col not in have:
+                    c.execute(f"ALTER TABLE runs ADD COLUMN {col} {typ}")
 
     # --- 기록 ----------------------------------------------------------------
 
     def add(self, day: date, km: float, minutes: float | None = None, source: str = "button",
-            ext_id: str | None = None, feel: int | None = None) -> bool:
+            ext_id: str | None = None, feel: int | None = None, hm: str | None = None,
+            hr: int | None = None, steps: int | None = None, kcal: int | None = None) -> bool:
         with self.store._conn() as c:
             if ext_id and c.execute("SELECT 1 FROM runs WHERE ext_id = ?", (ext_id,)).fetchone():
                 return False
-            c.execute("INSERT INTO runs (user_id, day, km, minutes, feel, source, ext_id, created) VALUES (?,?,?,?,?,?,?,?)",
-                      (self.owner, day.isoformat(), km, minutes, feel, source, ext_id, datetime.now().isoformat()))
+            c.execute("INSERT INTO runs (user_id, day, km, minutes, feel, source, ext_id, created, hm, hr, steps, kcal) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                      (self.owner, day.isoformat(), km, minutes, feel, source, ext_id, datetime.now().isoformat(), hm, hr, steps, kcal))
         return True
 
     def runs_between(self, a: date, b: date) -> list[dict]:
@@ -268,7 +274,7 @@ class Running:
 
     def all_runs(self) -> list[dict]:
         with self.store._conn() as c:
-            rows = c.execute("SELECT day, km, minutes FROM runs WHERE user_id = ? ORDER BY day, id", (self.owner,)).fetchall()
+            rows = c.execute("SELECT day, km, minutes, hm, hr, steps, kcal FROM runs WHERE user_id = ? ORDER BY day, hm, id", (self.owner,)).fetchall()
         return [dict(r) for r in rows]
 
     def summary(self, day: date) -> dict:
@@ -282,21 +288,9 @@ class Running:
                 "누적": sum(r["km"] for r in rs), "날수": len({r["day"] for r in rs})}
 
     def record_board(self) -> list[str]:
-        """월요일 요약에 붙는 🏆 기록판."""
-        rs = self.all_runs()
-        if not rs:
-            return []
-        days, weeks = {}, {}
-        for r in rs:
-            days[r["day"]] = days.get(r["day"], 0.0) + r["km"]
-            w = monday(date.fromisoformat(r["day"])).isoformat()
-            weeks[w] = weeks.get(w, 0.0) + r["km"]
-        L = ["", "🏆 기록판", f"1회 최장 {max(r['km'] for r in rs):.2f}km · 하루 최장 {max(days.values()):.2f}km · 주간 최장 {max(weeks.values()):.1f}km"]
-        ps = [r["minutes"] / r["km"] for r in rs if r.get("minutes") and r["km"] >= 1.0]
-        if ps:
-            b = min(ps)
-            L.append(f"최고 페이스 {int(b)}'{int(round((b % 1) * 60)) % 60:02d}\"/km · 달린 날 {len(days)}일")
-        return L
+        """월요일 요약에 붙는 🏆 기록실(bot/records.py)."""
+        from .records import board
+        return board(self.all_runs(), date.today())
 
     def streak(self, day: date) -> int:
         days = {r["day"] for r in self.all_runs()}
@@ -305,65 +299,10 @@ class Running:
             n += 1
         return n
 
-    def records(self, before: list[dict], day: date, km: float, minutes: float | None) -> list[str]:
-        """새 달리기 하나가 갱신한 기록들. before = 넣기 전 all_runs(). 처음 한 번(비교 대상 없음)은 신기록으로 치지 않는다."""
-        if not before:
-            return []
-        out = []
-        d = day.isoformat()
-
-        def tot(rows, key):
-            m = {}
-            for r in rows:
-                k = key(r["day"])
-                m[k] = m.get(k, 0.0) + r["km"]
-            return m
-
-        # 1회 최장
-        one = max(r["km"] for r in before)
-        if km > one:
-            out.append(f"🏆 1회 최장 신기록 — {km:.2f}km (전 {one:.2f}km)")
-        # 하루 최장 — 오늘 여러 번 합쳐서 넘었을 때만(한 번으로 넘었으면 위에서 이미 축하)
-        days_b = tot(before, lambda x: x)
-        today_b = days_b.get(d, 0.0)
-        best_day = max(days_b.values())
-        if today_b > 0 and today_b + km > best_day and not (km > one and today_b == 0):
-            out.append(f"🏆 하루 최장 신기록 — 오늘 합계 {today_b + km:.2f}km (전 {best_day:.2f}km)")
-        # 주·월 최장 — 지난 주·달이 있어야 비교
-        for label, key in (("주간", lambda x: monday(date.fromisoformat(x)).isoformat()), ("월간", lambda x: x[:7])):
-            m = tot(before, key)
-            cur = key(d)
-            past = [v for k, v in m.items() if k != cur]
-            if past and m.get(cur, 0.0) <= max(past) < m.get(cur, 0.0) + km:
-                out.append(f"🏆 {label} 최장 신기록 — {m.get(cur, 0.0) + km:.2f}km (전 {max(past):.2f}km)")
-        # 최고 페이스(1km 이상) · 최장 시간
-        if minutes and km >= 1.0:
-            ps = [r["minutes"] / r["km"] for r in before if r.get("minutes") and r["km"] >= 1.0]
-            if ps and minutes / km < min(ps):
-                def f(p):
-                    return f"{int(p)}'{int(round((p % 1) * 60)) % 60:02d}\""
-                out.append(f"⚡ 최고 페이스 신기록 — {f(minutes / km)}/km (전 {f(min(ps))})")
-        ms = [r["minutes"] for r in before if r.get("minutes")]
-        if minutes and ms and minutes > max(ms) and minutes >= 10:
-            out.append(f"⏱ 최장 시간 신기록 — {int(minutes)}분 (전 {int(max(ms))}분)")
-        # 연속 달린 날 — 그날 첫 달리기일 때만
-        if today_b == 0:
-            days = {r["day"] for r in before} | {d}
-            n = 0
-            while (day - timedelta(days=n)).isoformat() in days:
-                n += 1
-            if n in (2, 3, 5, 7, 10, 14, 21, 30, 50, 100):
-                out.append(f"🔥 {n}일 연속 달리기")
-            # 달린 날 수
-            nd = len(days)
-            if nd in (5, 10, 20, 30, 50, 75, 100, 150, 200, 300, 365):
-                out.append(f"📅 달린 날 {nd}일째")
-        # 누적 거리 이정표
-        tb = sum(r["km"] for r in before)
-        for mk in (10, 25, 50, 75, 100, 150, 200, 250, 300, 500, 750, 1000):
-            if tb < mk <= tb + km:
-                out.append(f"🛣 누적 {mk}km 돌파")
-        return out
+    def records(self, before: list[dict], new: dict) -> list[str]:
+        """새 달리기 하나가 세운 기록들(bot/records.py — 야구처럼 무지무지)."""
+        from .records import evaluate
+        return evaluate(before, new)
 
 
 PRAISE = [
