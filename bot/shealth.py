@@ -110,3 +110,52 @@ def dur(minutes: float) -> str:
     s = int(round(minutes * 60))
     h, m, sec = s // 3600, s % 3600 // 60, s % 60
     return f"{h}시간 {m}분" if h else (f"{m}분 {sec}초" if m < 10 else f"{m}분")
+
+
+# --- 걸음(하루 합계) — 「Health Sync 걸음」 폴더. 파라님 9/28 「걷기도 기록 재 줘」 -----------------
+STEP_FOLDER = "Health Sync 걸음"
+
+
+def _folder_files(h: dict, folder: str) -> list[dict]:
+    q = f"name = '{folder}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    fs = requests.get(API, headers=h, params={"q": q, "fields": "files(id)"}, timeout=30).json().get("files", [])
+    if not fs:
+        return []
+    out, page = [], None
+    while True:
+        p = {"q": f"'{fs[0]['id']}' in parents and trashed = false", "fields": "nextPageToken, files(id,name)", "pageSize": 200}
+        if page:
+            p["pageToken"] = page
+        j = requests.get(API, headers=h, params=p, timeout=30).json()
+        out += j.get("files", [])
+        page = j.get("nextPageToken")
+        if not page:
+            return out
+
+
+def _step_rows(text: str) -> dict:
+    """「날짜,시간,걸음」 줄들 → {date: 합}."""
+    m: dict = {}
+    for r in csv.DictReader(io.StringIO(text.lstrip("﻿"))):
+        g = re.match(r"(\d{4})\.(\d\d)\.(\d\d)", r.get("날짜", ""))
+        if g:
+            d = date(int(g.group(1)), int(g.group(2)), int(g.group(3)))
+            m[d] = m.get(d, 0) + int(_num(r.get("걸음")))
+    return m
+
+
+def fetch_steps(days: list[date] | None = None) -> dict:
+    """하루 걸음 합계 {date: 걸음}. days 를 주면 그날 파일만, None 이면 30일 묶음 파일까지 전부(처음 채울 때)."""
+    h = {"Authorization": "Bearer " + _access()}
+    out: dict = {}
+    want = {d.strftime("%Y.%m.%d") for d in (days or [])}
+    for f in _folder_files(h, STEP_FOLDER):
+        m = re.match(r"걸음 (\d{4}\.\d\d\.\d\d)(-\d{4}\.\d\d\.\d\d)? ", f["name"])
+        if not m or (days is not None and (m.group(2) or m.group(1) not in want)):
+            continue
+        r = requests.get(f"{API}/{f['id']}", headers=h, params={"alt": "media"}, timeout=60)
+        if r.ok:
+            for d, n in _step_rows(r.content.decode("utf-8", "replace")).items():
+                if not m.group(2) or d not in out:   # 하루 파일이 묶음보다 새것
+                    out[d] = n if not m.group(2) else out.get(d, n)
+    return out

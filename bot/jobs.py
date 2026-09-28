@@ -217,6 +217,18 @@ class Publisher:
                 lines.append(f"· 오늘 {s['오늘km']:.2f}km" + (f"({s['오늘번']}번)" if s["오늘번"] > 1 else "")
                              + f" · 이번 주 {s['주회']}/3회 · 이번 달 {s['달km']:.1f}km · 누적 {s['누적']:.1f}km")
                 lines.append(tagline(R.all_runs(), new, w["day"]))
+            elif w["kind"] in ("WALKING", "HIKING"):
+                # 걷기 기록실(파라님 9/28 「걷기도 기록 재 줘」)
+                from .records import trim, evaluate
+                new = {"day": w["day"].isoformat(), "hm": w["hm"], "km": w["km"], "minutes": minutes,
+                       "hr": w["hr"], "steps": w["steps"], "kcal": w["kcal"]}
+                before = self.walking.all()
+                if not self.walking.add(new, "sh:" + w["id"]) or quiet:
+                    continue
+                news = trim(evaluate(before, new, "걷기"))
+                today = [x for x in self.walking.all() if x["day"] == new["day"]]
+                lines.append(f"· 오늘 걷기 {sum(x['km'] for x in today):.2f}km" + (f"({len(today)}번)" if len(today) > 1 else "")
+                             + f" · 걷기 누적 {sum(x['km'] for x in self.walking.all()):.1f}km")
             elif quiet:
                 continue
             text = "\n".join(lines)
@@ -224,6 +236,38 @@ class Publisher:
                 text += "\n\n" + "\n".join(news)
             text += "\n\n" + random.choice(PRAISE_BIG if any(n.startswith(("🏆", "⚡", "🏅", "🎉", "⚾")) for n in news) else PRAISE)
             self._send(text)
+        self._steps_sync(now, quiet)
+
+    @property
+    def walking(self):
+        if not hasattr(self, "_walking"):
+            from .walking import Walking
+            self._walking = Walking(self.store)
+        return self._walking
+
+    def _steps_sync(self, now: datetime, quiet: bool = False) -> None:
+        """하루 걸음 — 오늘은 만보·2만보 넘는 순간 축하, 어제는 09시 뒤 첫 동기화에 결산 한 통."""
+        from datetime import timedelta
+        from . import shealth
+        from .walking import live, settle_text
+        W, today = self.walking, now.date()
+        yday = today - timedelta(days=1)
+        try:
+            got = shealth.fetch_steps([today, yday])
+        except Exception as exc:
+            log.warning("걸음 가져오기 실패: %s", exc)
+            return
+        if yday in got:
+            W.set_steps(yday, got[yday])
+        if today in got:
+            old = W.set_steps(today, got[today])
+            if not quiet:
+                for t in live(W.steps(), today, old, got[today]):
+                    self._send(t)
+        R = self.running
+        if not quiet and now.hour >= 9 and R.state("걸음결산") != yday.isoformat() and yday.isoformat() in W.steps():
+            R.set_state("걸음결산", yday.isoformat())
+            self._send(settle_text(W.steps(), yday))
 
     def _quote_drop(self, now: datetime) -> bool:
         """명언 카드를 그려서 보낸다. Pillow 나 한글 폰트가 없으면 False."""

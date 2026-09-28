@@ -98,10 +98,12 @@ def _crossed(before: float, after: float, marks) -> list:
     return [m for m in marks if before < m <= after]
 
 
-def evaluate(before: list[dict], new: dict) -> list[str]:
-    """새 달리기가 세운 기록들 — 중요한 것부터. 처음 달리기는 「첫 기록」 하나만."""
+def evaluate(before: list[dict], new: dict, 종목: str = "달리기") -> list[str]:
+    """새 운동이 세운 기록들 — 중요한 것부터. 처음은 「첫 기록」 하나만.
+    종목 = 「달리기」(야구 기록 포함) · 「걷기」(파라님 9/28 「걷기도 기록 재 줘」 — 야구는 달리기 전용)."""
+    ball = 종목 == "달리기"
     if not before:
-        return ["🎉 역사적인 첫 달리기 — 기록실 개장"]
+        return [f"🎉 역사적인 첫 {종목} — {종목} 기록실 개장"]
     out: list[str] = []
     after = before + [new]
     d, km, mins = new["day"], new["km"], new.get("minutes") or 0.0
@@ -144,7 +146,9 @@ def evaluate(before: list[dict], new: dict) -> list[str]:
 
     # ── 야구 ────────────────────────────────────────────────
     h, _ = hit(km)
-    if h == "홈런":
+    if not ball:
+        pass
+    elif h == "홈런":
         n = sum(1 for r in after if r["km"] >= 5.0)
         out.append(f"⚾ 시즌 {n}호 홈런! ({km:.2f}km)")
     elif h == "3루타":
@@ -152,18 +156,18 @@ def evaluate(before: list[dict], new: dict) -> list[str]:
         if n in (1, 5, 10, 20, 30, 50):
             out.append(f"⚾ 시즌 {n}번째 3루타")
     today_n = sum(1 for r in before if r["day"] == d) + 1
-    if today_n == 2:
+    if ball and today_n == 2:
         out.append("⚾ 멀티히트 경기 (하루 2번)")
-    elif today_n >= 3:
+    elif ball and today_n >= 3:
         out.append(f"⚾ 맹타 — 하루 {today_n}안타")
     cnt_b = _cnt(before, lambda r: r["day"])
     if today_n >= 2 and today_n > max(cnt_b.values()):
-        out.append(f"🔁 하루 최다 달리기 신기록 {today_n}번")
+        out.append(f"🔁 하루 최다 {종목} 신기록 {today_n}번")
     week_hits_b = {hit(r["km"])[0] for r in before if wk(r) == wk(new)}
-    if len(week_hits_b) < 4 and len(week_hits_b | {h}) == 4:
+    if ball and len(week_hits_b) < 4 and len(week_hits_b | {h}) == 4:
         out.append("⚾🌈 사이클링 히트! (한 주에 단타·2루타·3루타·홈런)")
     if first_today and dd.day == 1:
-        out.append(f"🎌 {dd.month}월 개막전 출전")
+        out.append(f"🎌 {dd.month}월 개막전 출전" + ("" if ball else f" ({종목})"))
 
     # ── 연속 ────────────────────────────────────────────────
     if first_today:
@@ -171,9 +175,9 @@ def evaluate(before: list[dict], new: dict) -> list[str]:
         s = _streak_days(days_a, dd)
         best_b = _max_streak(days_b) if days_b else 0
         if s >= 2 and s > best_b:
-            out.append(f"🔥 {s}일 연속 달리기 — 최장 연속 신기록 ({s}경기 연속 안타)")
+            out.append(f"🔥 {s}일 연속 {종목} — 최장 연속 신기록" + (f" ({s}경기 연속 안타)" if ball else ""))
         elif s in (3, 5, 7, 10, 14, 21, 30, 50, 100):
-            out.append(f"🔥 {s}일 연속 달리기 ({s}경기 연속 안타)")
+            out.append(f"🔥 {s}일 연속 {종목}" + (f" ({s}경기 연속 안타)" if ball else ""))
         # 같은 요일 몇 주 연속
         n = 0
         while (dd - timedelta(weeks=n)).isoformat() in days_a:
@@ -183,10 +187,10 @@ def evaluate(before: list[dict], new: dict) -> list[str]:
         # 복귀
         prev = max((x for x in days_b if x < d), default=None)
         if prev and (dd - _d(prev)).days >= 4:
-            out.append(f"🦅 {(dd - _d(prev)).days}일 만의 복귀 — 돌아온 파라")
+            out.append(f"🦅 {(dd - _d(prev)).days}일 만의 {종목} 복귀 — 돌아온 파라")
         # 요일 그랜드슬램
         if len({_d(x).weekday() for x in days_b}) < 7 and len({_d(x).weekday() for x in days_a}) == 7:
-            out.append("🗓 요일 그랜드슬램 — 월~일 모든 요일 달려 봄")
+            out.append(f"🗓 {종목} 요일 그랜드슬램 — 월~일 모든 요일")
         # 월요일 특별
         if dd.weekday() == 0:
             n = sum(1 for x in days_a if _d(x).weekday() == 0)
@@ -243,10 +247,11 @@ def evaluate(before: list[dict], new: dict) -> list[str]:
         bands_b = [band(r.get("hm")) for r in before if r.get("hm")]
         n = bands_b.count(b) + 1
         if n == 1:
-            out.append(f"🆕 첫 {b} 달리기")
+            out.append(f"🆕 첫 {b} {종목}")
         elif n in (5, 10, 20, 30, 50, 100):
-            titles = {"새벽": "새벽의 지배자", "아침": "아침형 인간", "낮": "대낮의 질주자", "저녁": "퇴근길 러너", "밤": "밤의 추적자"}
-            out.append(f"🕐 {b} 달리기 {n}회 — {titles[b]}")
+            titles = ({"새벽": "새벽의 지배자", "아침": "아침형 인간", "낮": "대낮의 질주자", "저녁": "퇴근길 러너", "밤": "밤의 추적자"} if ball else
+                      {"새벽": "새벽 산책가", "아침": "아침 산보꾼", "낮": "점심 산책러", "저녁": "저녁 산책의 달인", "밤": "밤길 방랑자"})
+            out.append(f"🕐 {b} {종목} {n}회 — {titles[b]}")
         if len(set(bands_b)) < 5 and len(set(bands_b) | {b}) == 5:
             out.append("🎡 시간대 사이클 — 새벽·아침·낮·저녁·밤 전부")
         hms = [r["hm"] for r in before if r.get("hm")]
@@ -259,9 +264,9 @@ def evaluate(before: list[dict], new: dict) -> list[str]:
     if new.get("hr") and km >= 1.0:
         hrs = [r["hr"] for r in before if r.get("hr") and r["km"] >= 1.0]
         if hrs and new["hr"] < min(hrs):
-            out.append(f"🧘 가장 평온한 달리기 — 평균 심박 {new['hr']} (전 {min(hrs)})")
+            out.append(f"🧘 가장 평온한 {종목} — 평균 심박 {new['hr']} (전 {min(hrs)})")
         if hrs and new["hr"] > max(hrs):
-            out.append(f"❤️‍🔥 가장 불태운 달리기 — 평균 심박 {new['hr']} (전 {max(hrs)})")
+            out.append(f"❤️‍🔥 가장 불태운 {종목} — 평균 심박 {new['hr']} (전 {max(hrs)})")
 
     # ── 누적 ────────────────────────────────────────────────
     t = sum(r["km"] for r in before)
@@ -269,19 +274,19 @@ def evaluate(before: list[dict], new: dict) -> list[str]:
         out.append(f"🛣 누적 {'풀코스 한 번 분량(42.195km)' if m == 42.195 else f'{m}km'} 돌파")
     n = len(after)
     if n in (10, 25, 50, 100, 150, 200, 300, 500, 1000):
-        out.append(f"🎖 통산 {n}번째 달리기")
+        out.append(f"🎖 통산 {n}번째 {종목}")
     if first_today and len(days_b) + 1 in (10, 20, 30, 50, 100, 200, 365):
         out.append(f"📅 통산 {len(days_b) + 1}일째 달린 날")
     tm = sum(r.get("minutes") or 0 for r in before) / 60
     for m in _crossed(tm, tm + mins / 60, (1, 3, 5, 10, 24, 50, 100)):
-        out.append(f"⏳ 누적 {m}시간 달림" + (" — 꼬박 하루를 달렸다" if m == 24 else ""))
+        out.append(f"⏳ {종목} 누적 {m}시간" + (" — 꼬박 하루를" if m == 24 else ""))
     kb = sum(r.get("kcal") or 0 for r in before)
     ka = kb + (new.get("kcal") or 0)
     for m in _crossed(kb, ka, range(2000, 200001, 2000)):
         out.append(f"🍗 누적 {m:,}kcal — 치킨 {m // 2000}마리 태움(약)")
     sb = sum(r.get("steps") or 0 for r in before)
     for m in _crossed(sb, sb + (new.get("steps") or 0), (10000, 50000, 100000, 250000, 500000, 1000000)):
-        out.append(f"👣 달리기 누적 {m:,}걸음")
+        out.append(f"👣 {종목} 누적 {m:,}걸음")
 
     # ── 숫자 놀이 ─────────────────────────────────────────────
     s2 = f"{km:.2f}".replace(".", "")
