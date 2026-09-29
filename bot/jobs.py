@@ -269,7 +269,20 @@ class Publisher:
                 if got[today] >= 10000:
                     self._auto_done(today)
         R = self.running
-        if not quiet and now.hour >= 9 and R.state("걸음결산") != yday.isoformat() and yday.isoformat() in W.steps():
+        # 마지막 업로드가 오늘 자정 전이면 어제 걸음은 덜 찬 숫자다 — 결산을 미룬다(9/29 25,316보가 20:56 까지 치였다)
+        try:
+            last = shealth.latest_upload()
+        except Exception as exc:
+            log.warning("마지막 업로드 시각 못 봄: %s", exc)
+            last = None
+        midnight = datetime.combine(today, datetime.min.time(), tzinfo=now.tzinfo) if now.tzinfo else None
+        fresh = last is not None and (midnight is None or last >= midnight)
+        if not quiet and last is not None and 9 <= now.hour < 22:
+            gap = (now - last).total_seconds() / 3600 if now.tzinfo else 0
+            if gap >= 3 and R.state("동기화경보") != today.isoformat():
+                R.set_state("동기화경보", today.isoformat())
+                self._send(f"⚠️ 삼성헬스 기록이 {int(gap)}시간째 안 들어와요\n· Health Sync 앱을 열어 「동기화」 한 번\n· 폰 설정 → 앱 → Health Sync → 배터리 「제한 없음」")
+        if not quiet and fresh and now.hour >= 9 and R.state("걸음결산") != yday.isoformat() and yday.isoformat() in W.steps():
             R.set_state("걸음결산", yday.isoformat())
             self._send(settle_text(W.steps(), yday))
 

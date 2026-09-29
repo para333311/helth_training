@@ -159,3 +159,21 @@ def fetch_steps(days: list[date] | None = None) -> dict:
                 if not m.group(2) or d not in out:   # 하루 파일이 묶음보다 새것
                     out[d] = n if not m.group(2) else out.get(d, n)
     return out
+
+
+def latest_upload():
+    """Health Sync 가 드라이브에 마지막으로 올린 때(UTC datetime). 폰이 앱을 재우면 멈춘다(9/29 실측 — 수동 동기화 뒤 14시간 무소식)."""
+    from datetime import datetime
+    h = {"Authorization": "Bearer " + _access()}
+    best = None
+    for folder in (FOLDER, STEP_FOLDER):
+        q = f"name = '{folder}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        fs = requests.get(API, headers=h, params={"q": q, "fields": "files(id)"}, timeout=30).json().get("files", [])
+        if not fs:
+            continue
+        j = requests.get(API, headers=h, params={"q": f"'{fs[0]['id']}' in parents and trashed = false", "orderBy": "modifiedTime desc",
+                                                 "pageSize": 1, "fields": "files(modifiedTime)"}, timeout=30).json().get("files", [])
+        if j:
+            t = datetime.fromisoformat(j[0]["modifiedTime"].replace("Z", "+00:00"))
+            best = t if best is None or t > best else best
+    return best
