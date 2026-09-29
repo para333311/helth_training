@@ -79,9 +79,11 @@ def fetch(seen) -> list[dict]:
     if not fs:
         log.warning("드라이브에 「%s」 폴더가 없다", FOLDER)
         return []
+    # 같은 이름 폴더가 여럿일 수 있다 — 「Health Sync」 한 폴더로 묶은 뒤(9/29) 앱이 새로 만들어도 다 읽는다
+    parents = " or ".join(f"'{f['id']}' in parents" for f in fs)
     out, page = [], None
     while True:
-        p = {"q": f"'{fs[0]['id']}' in parents and name contains '.csv' and trashed = false",
+        p = {"q": f"({parents}) and name contains '.csv' and trashed = false",
              "fields": "nextPageToken, files(id,name)", "pageSize": 200}
         if page:
             p["pageToken"] = page
@@ -121,9 +123,10 @@ def _folder_files(h: dict, folder: str) -> list[dict]:
     fs = requests.get(API, headers=h, params={"q": q, "fields": "files(id)"}, timeout=30).json().get("files", [])
     if not fs:
         return []
+    parents = " or ".join(f"'{f['id']}' in parents" for f in fs)
     out, page = [], None
     while True:
-        p = {"q": f"'{fs[0]['id']}' in parents and trashed = false", "fields": "nextPageToken, files(id,name)", "pageSize": 200}
+        p = {"q": f"({parents}) and trashed = false", "fields": "nextPageToken, files(id,name)", "pageSize": 200}
         if page:
             p["pageToken"] = page
         j = requests.get(API, headers=h, params=p, timeout=30).json()
@@ -171,7 +174,8 @@ def latest_upload():
         fs = requests.get(API, headers=h, params={"q": q, "fields": "files(id)"}, timeout=30).json().get("files", [])
         if not fs:
             continue
-        j = requests.get(API, headers=h, params={"q": f"'{fs[0]['id']}' in parents and trashed = false", "orderBy": "modifiedTime desc",
+        parents = " or ".join(f"'{f['id']}' in parents" for f in fs)
+        j = requests.get(API, headers=h, params={"q": f"({parents}) and trashed = false", "orderBy": "modifiedTime desc",
                                                  "pageSize": 1, "fields": "files(modifiedTime)"}, timeout=30).json().get("files", [])
         if j:
             t = datetime.fromisoformat(j[0]["modifiedTime"].replace("Z", "+00:00"))
