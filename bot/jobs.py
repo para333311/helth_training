@@ -187,6 +187,8 @@ class Publisher:
             log.warning("삼성헬스 가져오기 실패: %s", exc)
             return
         for w in ws:
+            # 이틀 넘은 운동은 적기만 — 과거 데이터(2024~) 내보내기가 쏟아지면 방이 「새 기록」 으로 도배된다(9/29)
+            q = quiet or (now.date() - w["day"]).days > 2
             R.set_state("sh:" + w["id"], w["kind"])
             if shealth.noise(w):
                 continue
@@ -207,7 +209,7 @@ class Publisher:
                 if not R.add(w["day"], w["km"], minutes, "shealth", "sh:" + w["id"], hm=w["hm"],
                              hr=w["hr"] or None, steps=w["steps"] or None, kcal=w["kcal"] or None):
                     continue
-                if quiet:
+                if q:
                     continue
                 from .records import tagline, trim
                 new = {"day": w["day"].isoformat(), "hm": w["hm"], "km": w["km"], "minutes": minutes,
@@ -223,15 +225,15 @@ class Publisher:
                 new = {"day": w["day"].isoformat(), "hm": w["hm"], "km": w["km"], "minutes": minutes,
                        "hr": w["hr"], "steps": w["steps"], "kcal": w["kcal"]}
                 before = self.walking.all()
-                if not self.walking.add(new, "sh:" + w["id"]) or quiet:
+                if not self.walking.add(new, "sh:" + w["id"]) or q:
                     continue
                 news = trim(evaluate(before, new, "걷기"))
                 today = [x for x in self.walking.all() if x["day"] == new["day"]]
                 lines.append(f"· 오늘 걷기 {sum(x['km'] for x in today):.2f}km" + (f"({len(today)}번)" if len(today) > 1 else "")
                              + f" · 걷기 누적 {sum(x['km'] for x in self.walking.all()):.1f}km")
-            elif quiet:
+            elif q:
                 continue
-            if not quiet and (w["run"] or w["kind"] in ("WALKING", "HIKING")):
+            if not q and (w["run"] or w["kind"] in ("WALKING", "HIKING")):
                 self._auto_done(w["day"])
             text = "\n".join(lines)
             if news:
