@@ -204,7 +204,7 @@ def check_config() -> None:
         from bot.config import load_config
 
         cfg = load_config(require_channel=False)
-        ok(f"시즌 D+{cfg.day_index()}/{cfg.season_days} · 목표 {cfg.goal_kg}kg · solo={cfg.solo_mode}")
+        ok(f"시즌 D+{cfg.day_index(__import__("datetime").date.today())}/{cfg.season_days} · 목표 {cfg.goal_kg}kg · solo={cfg.solo_mode}")
         ok(f"발행 시간 {cfg.photo_start_hour}~{cfg.photo_end_hour}시 · {cfg.photo_interval_minutes}분 간격")
     except SystemExit:
         fatal("load_config 가 설정 부족으로 종료했다", "위 [6] 항목을 먼저 해결")
