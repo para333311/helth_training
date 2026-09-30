@@ -279,11 +279,12 @@ class Publisher:
             last = None
         midnight = datetime.combine(today, datetime.min.time(), tzinfo=now.tzinfo) if now.tzinfo else None
         fresh = last is not None and (midnight is None or last >= midnight)
-        if not quiet and last is not None and 9 <= now.hour < 22:
-            gap = (now - last).total_seconds() / 3600 if now.tzinfo else 0
-            if gap >= 3 and R.state("동기화경보") != today.isoformat():
+        # Health Sync 는 새 운동·일별 요약이 생길 때만 올린다 — 몇 시간 조용한 건 정상(9/30 「3시간째」 거짓 경보).
+        # 진짜 멈춤 = 오전 10시가 지났는데 자정 뒤 올린 게 하나도 없음(어제 일별 걸음이 안 옴).
+        if not quiet and last is not None and 10 <= now.hour < 22 and not fresh:
+            if R.state("동기화경보") != today.isoformat():
                 R.set_state("동기화경보", today.isoformat())
-                self._send(f"⚠️ 삼성헬스 기록이 {int(gap)}시간째 안 들어와요\n· Health Sync 앱을 열어 「동기화」 한 번\n· 폰 설정 → 앱 → Health Sync → 배터리 「제한 없음」")
+                self._send("⚠️ 어제 걸음이 아직 안 들어와요\n· Health Sync 앱을 열어 「동기화」 한 번\n· 폰 설정 → 앱 → Health Sync → 배터리 「제한 없음」")
         if not quiet and fresh and now.hour >= 9 and R.state("걸음결산") != yday.isoformat() and yday.isoformat() in W.steps():
             R.set_state("걸음결산", yday.isoformat())
             self._send(settle_text(W.steps(), yday))
